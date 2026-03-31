@@ -45,6 +45,8 @@ type Game struct {
 	state          GameState
 	fadeIn         float64
 	frameCount     int
+	IsWASM         bool
+	preloader      *PreloadManager
 }
 
 func NewGame(pm PatternManager) *Game {
@@ -52,30 +54,14 @@ func NewGame(pm PatternManager) *Game {
 		world:          NewWorld(),
 		Score:          0,
 		patternManager: pm,
-		state:          StateMenu,
+		state:          StatePreload, // start in preload
 		fadeIn:         1.0,
 	}
 
 	g.initPlayer()
 
-	menuTrack, err := loadBGM()
-	if err == nil {
-		g.menuBGM = menuTrack
-		g.menuBGM.SetVolume(0.05)
-		g.menuBGM.Play() // starts immediately (desktop OK)
-	}
-
-	gameTrack, err := loadRandomBGM()
-	if err == nil {
-		g.gameBGM = gameTrack
-		g.gameBGM.SetVolume(0.05)
-	}
-
-	retryTrack, err := loadRetryBGM()
-	if err == nil {
-		g.retryBGM = retryTrack
-		g.retryBGM.SetVolume(0.05)
-	}
+	// Start async preload (DO NOT preload synchronously)
+	g.preloader = NewPreloadManager()
 
 	return g
 }
@@ -113,53 +99,76 @@ func (g *Game) Update() error {
 		g.updateRetry()
 	case StateVictory:
 		g.updateVictory()
+
+	case StatePreload:
+		g.preloader.Update()
+
+		// Stage 1 finished → go to menu
+		if g.preloader.Stage1Done() {
+
+			// Assign title + retry BGM from cache
+			g.menuBGM = bgmCache["assets/ost/nikke_title_ost.mp3"]
+			g.retryBGM = bgmCache["assets/ost/nikke_retry_ost.mp3"]
+
+			if g.menuBGM != nil {
+				g.menuBGM.SetVolume(0.05)
+
+				// Desktop can autoplay
+				if !g.IsWASM {
+					g.menuBGM.Rewind()
+					g.menuBGM.Play()
+				}
+			}
+
+			// Move to menu; Stage 2 continues silently
+			g.state = StateMenu
+		}
+
+		return nil
+
 	}
 	return nil
 }
 
 func (g *Game) updateMenu() {
-	if g.fadeIn > 0 {
-		g.fadeIn -= 1.0 / 60.0
-	}
+    if g.fadeIn > 0 {
+        g.fadeIn -= 1.0 / 60.0
+    }
 
-	// ⭐ SAFETY: If menuBGM is nil, load it
-	if g.menuBGM == nil {
-		mbgm, err := loadBGM()
-		if err == nil {
-			g.menuBGM = mbgm
-			g.menuBGM.SetVolume(0.1)
-			g.menuBGM.Play()
-		}
-	}
+    // Always resume menu BGM if it exists and isn't playing
+    if g.menuBGM != nil && !g.menuBGM.IsPlaying() {
+        g.menuBGM.Rewind()
+        g.menuBGM.Play()
+    }
 
-	// ⭐ SAFETY: Only call IsPlaying/Rewind/Play if menuBGM exists
-	if g.menuBGM != nil && !g.menuBGM.IsPlaying() {
-		g.menuBGM.Rewind()
-		g.menuBGM.Play()
-	}
+    // ENTER → Start game
+    if ebiten.IsKeyPressed(ebiten.KeyEnter) {
 
-	// ENTER → Start game
-	if ebiten.IsKeyPressed(ebiten.KeyEnter) {
-		if g.menuBGM != nil {
-			g.menuBGM.Pause()
-		}
+        // WASM unlock: first user interaction
+        if g.IsWASM && g.menuBGM != nil && !g.menuBGM.IsPlaying() {
+            g.menuBGM.Rewind()
+            g.menuBGM.Play()
+        }
 
-		g.reset(true, true) // load gameplay BGM + shuffle patterns
+        if g.menuBGM != nil {
+            g.menuBGM.Pause()
+        }
 
-		if g.gameBGM != nil {
-			g.gameBGM.Rewind()
-			g.gameBGM.Play()
-		}
+        g.reset(true, true)
 
-		g.state = StatePlaying
-		return
-	}
+        if g.gameBGM != nil {
+            g.gameBGM.Play()
+        }
 
-	// C → Controls
-	if ebiten.IsKeyPressed(ebiten.KeyC) {
-		g.state = StateControls
-		return
-	}
+        g.state = StatePlaying
+        return
+    }
+
+    // C → Controls
+    if ebiten.IsKeyPressed(ebiten.KeyC) {
+        g.state = StateControls
+        return
+    }
 }
 
 func (g *Game) drawMenuParticles(screen *ebiten.Image) {
@@ -352,52 +361,70 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 }
 
 func (g *Game) updatePlaying() error {
-	// If gameplay BGM finished, load a new random track
-	if g.gameBGM != nil && !g.gameBGM.IsPlaying() {
-		g.gameBGM.Pause()
-		g.gameBGM = nil
+    // -----------------------------------------
+    // Handle gameplay BGM looping / switching
+    // -----------------------------------------
+    if g.gameBGM != nil && !g.gameBGM.IsPlaying() {
 
-		next, err := loadRandomBGM()
-		if err == nil {
-			g.gameBGM = next
-			g.gameBGM.SetVolume(0.1)
-			g.gameBGM.Play()
-		}
-	}
+        // Stop old track
+        g.gameBGM.Pause()
 
-	g.updateInput()
-	g.updateMovement()
-	g.checkCollisions()
+        // Pick a new staged-preload-aware track
+        var next *audio.Player
+        if g.preloader != nil && g.preloader.Stage2Done() {
+            next = LoadRandomGameplayFull()
+        } else {
+            next = LoadRandomGameplayStage1()
+        }
 
-	g.Score += 1
+        // Safety: ensure next is valid
+        if next != nil {
+            next.Rewind()
+            next.SetVolume(0.1)
+            g.gameBGM = next
 
-	if g.patternManager != nil {
-		g.patternManager.Update(g)
-		if g.patternManager.Done() {
-			g.state = StateVictory
-			return nil
-		}
-	}
+            // WASM can play because user already interacted
+            g.gameBGM.Play()
+        }
+    }
 
-	// Fade-out logic (for transitions)
-	if g.fadeOut && g.gameBGM != nil {
-		dt := 1.0 / 60.0
-		g.fadeTimer -= dt
+    // -----------------------------------------
+    // Core gameplay updates
+    // -----------------------------------------
+    g.updateInput()
+    g.updateMovement()
+    g.checkCollisions()
 
-		newVol := g.gameBGM.Volume() - (dt / 1.0)
+    g.Score += 1
 
-		if newVol <= 0 {
-			g.gameBGM.SetVolume(0)
-			g.gameBGM.Pause()
-			g.fadeOut = false
-		} else {
-			g.gameBGM.SetVolume(newVol)
-		}
-	}
+    if g.patternManager != nil {
+        g.patternManager.Update(g)
+        if g.patternManager.Done() {
+            g.state = StateVictory
+            return nil
+        }
+    }
 
-	g.world.Cleanup()
+    // -----------------------------------------
+    // Fade-out logic (for transitions)
+    // -----------------------------------------
+    if g.fadeOut && g.gameBGM != nil {
+        dt := 1.0 / 60.0
+        g.fadeTimer -= dt
 
-	return nil
+        newVol := g.gameBGM.Volume() - (dt / 1.0)
+
+        if newVol <= 0 {
+            g.gameBGM.SetVolume(0)
+            g.gameBGM.Pause()
+            g.fadeOut = false
+        } else {
+            g.gameBGM.SetVolume(newVol)
+        }
+    }
+
+    g.world.Cleanup()
+    return nil
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -416,6 +443,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	case StateVictory:
 		g.drawVictory(screen)
+
+	case StatePreload:
+		g.drawPreload(screen)
 	}
 }
 

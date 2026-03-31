@@ -5,6 +5,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
+    "github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 func (g *Game) drawCircle(screen *ebiten.Image, x, y, r float64, clr color.Color) {
@@ -133,4 +134,55 @@ func (g *Game) updateVictory() {
         g.reset(false, false)
         g.state = StateMenu
     }
+}
+
+func (g *Game) drawPreload(screen *ebiten.Image) {
+    progress := g.preloader.Progress()
+
+    // Background
+    screen.Fill(color.RGBA{10, 10, 10, 255})
+
+    // -------------------------
+    // Draw "Loading..." centered
+    // -------------------------
+    msg := "Loading..."
+    m := ScoreFont.Metrics()
+    lineHeight := m.HAscent + m.HDescent + m.HLineGap
+
+    msgW, _ := text.Measure(msg, ScoreFont, lineHeight)
+
+    scale := 1.2
+    scaledW := float64(msgW) * scale
+
+    x := int((float64(g.ScreenWidth()) - scaledW) / 2)
+    y := int(float64(g.ScreenHeight()) * 0.35)
+
+    neonText(screen, msg, x, y, color.RGBA{200, 200, 255, 255}, scale)
+
+    // -------------------------
+    // Progress bar
+    // -------------------------
+    barW := float32(float64(g.ScreenWidth()) * 0.6)
+    barH := float32(18)
+    barX := float32((g.ScreenWidth())/2) - barW/2
+    barY := float32(g.ScreenHeight()) * 0.55
+
+    // Background bar
+    vector.FillRect(
+        screen,
+        barX, barY,
+        barW, barH,
+        color.RGBA{40, 40, 40, 255},
+        false,
+    )
+
+    // Fill bar
+    fillW := barW * float32(progress)
+    vector.FillRect(
+        screen,
+        barX, barY,
+        fillW, barH,
+        color.RGBA{0, 255, 255, 255},
+        false,
+    )
 }

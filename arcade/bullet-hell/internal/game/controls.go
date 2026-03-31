@@ -21,14 +21,14 @@ func neonTextChar(screen *ebiten.Image, s string, x, y int, col color.Color, sca
 }
 
 func (g *Game) updateControls() {
-	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
-		g.state = StateMenu
+    if ebiten.IsKeyPressed(ebiten.KeyEscape) {
+        g.state = StateMenu
 
-		if !g.menuBGM.IsPlaying() {
-			g.menuBGM.Rewind()
-			g.menuBGM.Play()
-		}
-	}
+        if g.menuBGM != nil && !g.menuBGM.IsPlaying() {
+            g.menuBGM.Rewind()
+            g.menuBGM.Play()
+        }
+    }
 }
 
 func (g *Game) drawControls(screen *ebiten.Image) {

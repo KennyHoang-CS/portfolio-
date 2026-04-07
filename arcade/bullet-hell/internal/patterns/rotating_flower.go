@@ -3,7 +3,7 @@ package patterns
 import (
 	"math"
 
-	"github.com/KennyHoang-CS/portfolio/internal/game"
+	"github.com/KennyHoang-CS/portfolio/bullet-hell/internal/game"
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
@@ -15,7 +15,7 @@ type RotatingFlowerPattern struct {
 
 // Draw implements [game.BulletPattern].
 func (p *RotatingFlowerPattern) Draw(screen *ebiten.Image, g *game.Game) {
-	
+
 }
 
 func NewRotatingFlowerPattern() *RotatingFlowerPattern {

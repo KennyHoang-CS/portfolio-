@@ -1,0 +1,9 @@
+package ui
+
+import "image/color"
+
+var (
+	EditorBg   = color.RGBA{R: 0x20, G: 0x6f, B: 0x8f, A: 0xff}
+	TerminalBg = color.RGBA{R: 0x17, G: 0x17, B: 0x17, A: 0xff}
+	LabelColor = color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+)

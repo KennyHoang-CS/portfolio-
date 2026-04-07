@@ -1,7 +1,7 @@
 package patterns
 
 import (
-	"github.com/KennyHoang-CS/portfolio/internal/game"
+	"github.com/KennyHoang-CS/portfolio/bullet-hell/internal/game"
 )
 
 type CheckerboardBarragePattern struct {

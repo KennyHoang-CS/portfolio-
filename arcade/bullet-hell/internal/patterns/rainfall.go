@@ -7,7 +7,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 
-	"github.com/KennyHoang-CS/portfolio/internal/game"
+	"github.com/KennyHoang-CS/portfolio/bullet-hell/internal/game"
 )
 
 type RainfallPattern struct {
@@ -98,33 +98,33 @@ func (p *RainfallPattern) Update(g *game.Game, difficulty int) {
 }
 
 func (p *RainfallPattern) Draw(screen *ebiten.Image, g *game.Game) {
-    // -------------------------------------
-    // CLOUD BAND AT TOP (dark gradient)
-    // -------------------------------------
-    for i := 0; i < 80; i++ {
-        alpha := uint8(80 - i)
-        vector.FillRect(
-            screen,
-            0, float32(i),
-            float32(g.ScreenWidth()), 1,
-            color.RGBA{0, 0, 0, alpha},
-            false,
-        )
-    }
+	// -------------------------------------
+	// CLOUD BAND AT TOP (dark gradient)
+	// -------------------------------------
+	for i := 0; i < 80; i++ {
+		alpha := uint8(80 - i)
+		vector.FillRect(
+			screen,
+			0, float32(i),
+			float32(g.ScreenWidth()), 1,
+			color.RGBA{0, 0, 0, alpha},
+			false,
+		)
+	}
 
-    // -------------------------------------
-    // SOFT, VISIBLE, SAFE LIGHTNING TINT
-    // -------------------------------------
-    if p.flashTimer > 0 {
-        p.flashTimer--
-        alpha := uint8(2 + p.flashTimer*2)
-        // a pale gray-blue that shows up on dark backgrounds
-        overlay := ebiten.NewImage(g.ScreenWidth(), g.ScreenHeight())
-        overlay.Fill(color.RGBA{160, 180, 220, alpha})
+	// -------------------------------------
+	// SOFT, VISIBLE, SAFE LIGHTNING TINT
+	// -------------------------------------
+	if p.flashTimer > 0 {
+		p.flashTimer--
+		alpha := uint8(2 + p.flashTimer*2)
+		// a pale gray-blue that shows up on dark backgrounds
+		overlay := ebiten.NewImage(g.ScreenWidth(), g.ScreenHeight())
+		overlay.Fill(color.RGBA{160, 180, 220, alpha})
 
-        screen.DrawImage(overlay, nil)
-    }
+		screen.DrawImage(overlay, nil)
+	}
 }
 func (p *RainfallPattern) IsFinished() bool { return p.timer > p.duration }
-func (p *RainfallPattern) Reset()          { p.timer = 0 }
-func (p *RainfallPattern) Name() string    { return "RainfallPattern" }
+func (p *RainfallPattern) Reset()           { p.timer = 0 }
+func (p *RainfallPattern) Name() string     { return "RainfallPattern" }

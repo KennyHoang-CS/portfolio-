@@ -5,8 +5,8 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 
-	"github.com/KennyHoang-CS/portfolio/internal/game"
-	"github.com/KennyHoang-CS/portfolio/internal/patterns"
+	"github.com/KennyHoang-CS/portfolio/bullet-hell/internal/game"
+	"github.com/KennyHoang-CS/portfolio/bullet-hell/internal/patterns"
 )
 
 func main() {

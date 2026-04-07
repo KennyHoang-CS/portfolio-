@@ -1,8 +1,9 @@
 package patterns
 
 import (
-	"github.com/KennyHoang-CS/portfolio/internal/game"
 	"math/rand"
+
+	"github.com/KennyHoang-CS/portfolio/bullet-hell/internal/game"
 )
 
 type PatternManager struct {
@@ -20,7 +21,7 @@ func NewPatternManager() *PatternManager {
 }
 
 func (pm *PatternManager) Done() bool {
-    return pm.index >= len(pm.patterns)
+	return pm.index >= len(pm.patterns)
 }
 
 func (pm *PatternManager) Add(p game.BulletPattern) {
@@ -28,34 +29,34 @@ func (pm *PatternManager) Add(p game.BulletPattern) {
 }
 
 func (pm *PatternManager) Update(g *game.Game) {
-    // No patterns? Nothing to do.
-    if len(pm.patterns) == 0 {
-        return
-    }
+	// No patterns? Nothing to do.
+	if len(pm.patterns) == 0 {
+		return
+	}
 
-    // If we've already used all patterns, stop updating.
-    // This allows pm.Done() to return true.
-    if pm.index >= len(pm.patterns) {
-        return
-    }
+	// If we've already used all patterns, stop updating.
+	// This allows pm.Done() to return true.
+	if pm.index >= len(pm.patterns) {
+		return
+	}
 
-    // Get the current pattern
-    current := pm.patterns[pm.index]
+	// Get the current pattern
+	current := pm.patterns[pm.index]
 
-    // Update the pattern
-    current.Update(g, pm.difficulty)
+	// Update the pattern
+	current.Update(g, pm.difficulty)
 
-    // If the pattern is finished, move to the next one
-    if current.IsFinished() {
-        pm.index++
+	// If the pattern is finished, move to the next one
+	if current.IsFinished() {
+		pm.index++
 
-        // Reward for clearing a pattern
-        g.Score += 500 * pm.difficulty
+		// Reward for clearing a pattern
+		g.Score += 500 * pm.difficulty
 
-        // ⭐ NO LOOPING HERE — we simply stop at the end.
-        // pm.index will eventually reach len(pm.patterns),
-        // and pm.Done() will return true.
-    }
+		// ⭐ NO LOOPING HERE — we simply stop at the end.
+		// pm.index will eventually reach len(pm.patterns),
+		// and pm.Done() will return true.
+	}
 }
 
 func (pm *PatternManager) Reset() {
@@ -68,10 +69,10 @@ func (pm *PatternManager) Reset() {
 }
 
 func (pm *PatternManager) CurrentName() string {
-    if len(pm.patterns) == 0 {
-        return ""
-    }
-    return pm.patterns[pm.index].Name()
+	if len(pm.patterns) == 0 {
+		return ""
+	}
+	return pm.patterns[pm.index].Name()
 }
 
 func (pm *PatternManager) Difficulty() int {
@@ -79,14 +80,14 @@ func (pm *PatternManager) Difficulty() int {
 }
 
 func (pm *PatternManager) Current() game.BulletPattern {
-    if len(pm.patterns) == 0 {
-        return nil
-    }
-    return pm.patterns[pm.index]
+	if len(pm.patterns) == 0 {
+		return nil
+	}
+	return pm.patterns[pm.index]
 }
 
 func (pm *PatternManager) Shuffle() {
-    rand.Shuffle(len(pm.patterns), func(i, j int) {
-        pm.patterns[i], pm.patterns[j] = pm.patterns[j], pm.patterns[i]
-    })
+	rand.Shuffle(len(pm.patterns), func(i, j int) {
+		pm.patterns[i], pm.patterns[j] = pm.patterns[j], pm.patterns[i]
+	})
 }

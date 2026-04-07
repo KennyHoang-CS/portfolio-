@@ -5,7 +5,7 @@ import (
 	"math"
 	"math/rand"
 
-	"github.com/KennyHoang-CS/portfolio/internal/game"
+	"github.com/KennyHoang-CS/portfolio/bullet-hell/internal/game"
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
@@ -135,44 +135,44 @@ func (p *UltimateDetonation) Phase() int     { return p.phase }
 func (p *UltimateDetonation) PhaseTime() int { return p.phaseTime }
 
 func (p *UltimateDetonation) Draw(screen *ebiten.Image, g *game.Game) {
-    // -----------------------------------------
-    // Blinking red orb (phase 1 and 2)
-    // -----------------------------------------
-    if p.phase == 1 || p.phase == 2 {
-        // blink every 6 frames
-        blink := (p.phaseTime/6)%2 == 0
+	// -----------------------------------------
+	// Blinking red orb (phase 1 and 2)
+	// -----------------------------------------
+	if p.phase == 1 || p.phase == 2 {
+		// blink every 6 frames
+		blink := (p.phaseTime/6)%2 == 0
 
-        var orbColor color.RGBA
-        if blink {
-            orbColor = color.RGBA{255, 40, 40, 255} // bright danger red
-        } else {
-            orbColor = color.RGBA{255, 120, 120, 255} // softer red
-        }
+		var orbColor color.RGBA
+		if blink {
+			orbColor = color.RGBA{255, 40, 40, 255} // bright danger red
+		} else {
+			orbColor = color.RGBA{255, 120, 120, 255} // softer red
+		}
 
-        // base orb glow
-        g.DrawGlowCircle(screen, p.x, p.y, 10, orbColor)
-    }
+		// base orb glow
+		g.DrawGlowCircle(screen, p.x, p.y, 10, orbColor)
+	}
 
-    // -----------------------------------------
-    // Charge-up extras (phase 2 only)
-    // -----------------------------------------
-    if p.phase == 2 {
-        // pulsing radius
-        pulse := 10 + 4*math.Sin(float64(p.phaseTime)/4)
-        g.DrawGlowCircle(screen, p.x, p.y, pulse, color.RGBA{255, 160, 200, 255})
+	// -----------------------------------------
+	// Charge-up extras (phase 2 only)
+	// -----------------------------------------
+	if p.phase == 2 {
+		// pulsing radius
+		pulse := 10 + 4*math.Sin(float64(p.phaseTime)/4)
+		g.DrawGlowCircle(screen, p.x, p.y, pulse, color.RGBA{255, 160, 200, 255})
 
-        // shrinking warning ring
-        ring := 40 - float64(p.phaseTime)
-        if ring > 0 {
-            g.DrawRing(screen, p.x, p.y, ring, 2, color.RGBA{255, 255, 255, 200})
-        }
-    }
+		// shrinking warning ring
+		ring := 40 - float64(p.phaseTime)
+		if ring > 0 {
+			g.DrawRing(screen, p.x, p.y, ring, 2, color.RGBA{255, 255, 255, 200})
+		}
+	}
 
-    // -----------------------------------------
-    // Explosion flash (phase 3)
-    // -----------------------------------------
-    if p.phase == 3 && p.phaseTime < 6 {
-        flash := 20 + float64(p.phaseTime)*4
-        g.DrawGlowCircle(screen, p.x, p.y, flash, color.RGBA{255, 200, 200, 255})
-    }
+	// -----------------------------------------
+	// Explosion flash (phase 3)
+	// -----------------------------------------
+	if p.phase == 3 && p.phaseTime < 6 {
+		flash := 20 + float64(p.phaseTime)*4
+		g.DrawGlowCircle(screen, p.x, p.y, flash, color.RGBA{255, 200, 200, 255})
+	}
 }

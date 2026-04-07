@@ -1,30 +1,38 @@
 package ui
 
 import (
+	"image"
+	"image/color"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text"
+	"golang.org/x/image/font/basicfont"
 )
 
-// DrawPanels renders a two-panel layout: editor (left) and terminal (right).
+func EditorBounds(w, h int) image.Rectangle {
+	return image.Rect(0, 0, w/2, h)
+}
+
+func TerminalBounds(w, h int) image.Rectangle {
+	return image.Rect(w/2, 0, w, h)
+}
+
 func DrawPanels(screen *ebiten.Image, w, h int) {
-	leftW := w * 3 / 5
-	rightW := w - leftW
+	// Editor panel
+	editorRect := EditorBounds(w, h)
+	editorImg := ebiten.NewImage(editorRect.Dx(), editorRect.Dy())
+	editorImg.Fill(color.RGBA{30, 30, 60, 255})
+	screen.DrawImage(editorImg, nil)
 
-	// Left panel image (Editor)
-	leftImg := ebiten.NewImage(leftW, h)
-	leftImg.Fill(EditorBg)
-	opts := &ebiten.DrawImageOptions{}
-	opts.GeoM.Translate(0, 0)
-	screen.DrawImage(leftImg, opts)
-
-	// Right panel image (Terminal)
-	rightImg := ebiten.NewImage(rightW, h)
-	rightImg.Fill(TerminalBg)
-	opts2 := &ebiten.DrawImageOptions{}
-	opts2.GeoM.Translate(float64(leftW), 0)
-	screen.DrawImage(rightImg, opts2)
+	// Terminal panel
+	termRect := TerminalBounds(w, h)
+	termImg := ebiten.NewImage(termRect.Dx(), termRect.Dy())
+	termImg.Fill(color.RGBA{10, 10, 20, 255})
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(float64(termRect.Min.X), float64(termRect.Min.Y))
+	screen.DrawImage(termImg, op)
 
 	// Labels
-	text.Draw(screen, "Editor Panel", BasicFontFace, 20, 28, LabelColor)
-	text.Draw(screen, "Terminal Panel", BasicFontFace, leftW+20, 28, LabelColor)
+	text.Draw(screen, "Editor Panel", basicfont.Face7x13, 16, 24, color.White)
+	text.Draw(screen, "Terminal Panel", basicfont.Face7x13, termRect.Min.X+16, 24, color.White)
 }

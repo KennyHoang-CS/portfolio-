@@ -2,55 +2,130 @@ package main
 
 import (
 	"log"
+	"strings"
 
+	fonts "github.com/KennyHoang-CS/portfolio/bazelquest/internal/assets"
 	"github.com/KennyHoang-CS/portfolio/bazelquest/internal/build"
 	"github.com/KennyHoang-CS/portfolio/bazelquest/internal/editor"
 	"github.com/KennyHoang-CS/portfolio/bazelquest/internal/input"
+	"github.com/KennyHoang-CS/portfolio/bazelquest/internal/levels"
 	"github.com/KennyHoang-CS/portfolio/bazelquest/internal/terminal"
 	"github.com/KennyHoang-CS/portfolio/bazelquest/internal/ui"
+	"github.com/KennyHoang-CS/portfolio/bazelquest/internal/ui/buttons"
+
+	_ "github.com/KennyHoang-CS/portfolio/bazelquest/internal/levels/go"
+	gorules "github.com/KennyHoang-CS/portfolio/bazelquest/internal/rulesets/go"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
 type Game struct {
-	editor   *editor.Editor
-	terminal *terminal.Terminal
+	editor    *editor.Editor
+	terminal  *terminal.Terminal
+	toolbar   *buttons.Toolbar
+	ToolbarUI *ui.ToolbarUI
 }
 
 func NewGame() *Game {
 	e := editor.New()
 	t := terminal.New()
-	t.LogInfo("BazelQuest prototype started.")
-	t.LogInfo("Type in the editor. Press Enter+Ctrl (simulated later) or just F5 to build (for now: Enter triggers build).")
-	return &Game{
+	lvl := levels.First()
+
+	t.LogInfo("Level: " + lvl.Title)
+	t.LogInfo(lvl.Description)
+
+	for _, line := range strings.Split(lvl.InitialBUILD, "\n") {
+		e.InsertLine(line)
+	}
+
+	g := &Game{
 		editor:   e,
 		terminal: t,
 	}
+
+	g.initUI()
+	return g
 }
 
 func (g *Game) Update() error {
-	input.Update(g.editor, g.terminal)
+    // Update editor + terminal input
+    input.Update(g.editor, g.terminal)
 
-	// TEMP: pressing F5 or Enter triggers a fake build
-	if inpututil.IsKeyJustPressed(ebiten.KeyF5) {
-		build.Run(g.editor.Buffer(), g.terminal)
-	}
-	return nil
+    // Update EbitenUI toolbar
+    g.ToolbarUI.UI.Update()
+
+    if inpututil.IsKeyJustPressed(ebiten.KeyF5) {
+        g.BuildOnly()
+    }
+
+    if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+        x, y := ebiten.CursorPosition()
+        g.editor.Click(x, y)
+    }
+
+    return nil
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
-	w, h := screen.Size()
-	ui.DrawPanels(screen, w, h)
-	g.editor.Draw(screen)
-	g.terminal.Draw(screen)
+    w, h := screen.Size()
+
+    // 1. Draw your custom panels
+    ui.DrawPanels(screen, w, h, fonts.EditorFont)
+
+    // 2. Position editor + terminal inside their panels
+    editorRect := ui.EditorBounds(w, h)
+    g.editor.SetOffset(editorRect.Min.X+16, editorRect.Min.Y+48)
+
+    termRect := ui.TerminalBounds(w, h)
+    g.terminal.SetOffset(termRect.Min.X+16, termRect.Min.Y+48)
+
+    // 3. Draw editor + terminal
+    g.editor.Draw(screen)
+    g.terminal.Draw(screen)
+
+    // 4. Draw EbitenUI toolbar (layout handles positioning)
+    g.ToolbarUI.UI.Draw(screen)
 }
 
 func (g *Game) Layout(outW, outH int) (int, int) { return 1280, 720 }
 
 func main() {
+	gorules.Register()
+
 	ebiten.SetWindowSize(1280, 720)
 	ebiten.SetWindowTitle("BazelQuest - Prototype")
+
 	if err := ebiten.RunGame(NewGame()); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func (g *Game) initUI() {
+	g.ToolbarUI = ui.NewToolbarUI(
+		func() { g.RunProgram() },
+		func() { g.BuildOnly() },
+		func() { g.FormatCode() },
+	)
+}
+
+func (g *Game) RunBuild() {
+	build.Run(g.editor.Buffer(), g.terminal)
+}
+
+func (g *Game) FormatCode() {
+	g.terminal.LogInfo("Format not implemented yet")
+}
+
+func (g *Game) BuildOnly() {
+	build.Run(g.editor.Buffer(), g.terminal)
+}
+
+func (g *Game) RunProgram() {
+	ok := build.Run(g.editor.Buffer(), g.terminal)
+	if !ok {
+		return
+	}
+
+	g.terminal.LogInfo("Running program...")
 }

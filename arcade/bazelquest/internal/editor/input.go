@@ -8,7 +8,6 @@ import (
 )
 
 func (e *Editor) Update() {
-	// Arrow keys
 	if inpututil.IsKeyJustPressed(ebiten.KeyUp) {
 		e.moveCursorLine(-1)
 	}
@@ -22,17 +21,14 @@ func (e *Editor) Update() {
 		e.moveCursorCol(1)
 	}
 
-	// Backspace
 	if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) {
 		e.backspace()
 	}
 
-	// Enter
 	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
 		e.insertNewline()
 	}
 
-	// Text input
 	for _, r := range ebiten.InputChars() {
 		if r == '\n' || r == '\r' {
 			continue

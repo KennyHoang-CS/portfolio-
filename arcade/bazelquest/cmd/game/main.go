@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"strings"
 
 	fonts "github.com/KennyHoang-CS/portfolio/bazelquest/internal/assets"
 	"github.com/KennyHoang-CS/portfolio/bazelquest/internal/build"
@@ -12,6 +11,7 @@ import (
 	"github.com/KennyHoang-CS/portfolio/bazelquest/internal/terminal"
 	"github.com/KennyHoang-CS/portfolio/bazelquest/internal/ui"
 	"github.com/KennyHoang-CS/portfolio/bazelquest/internal/ui/buttons"
+	"github.com/KennyHoang-CS/portfolio/bazelquest/internal/workspace"
 
 	_ "github.com/KennyHoang-CS/portfolio/bazelquest/internal/levels/go"
 	gorules "github.com/KennyHoang-CS/portfolio/bazelquest/internal/rulesets/go"
@@ -21,31 +21,53 @@ import (
 )
 
 type Game struct {
-	editor    *editor.Editor
-	terminal  *terminal.Terminal
-	toolbar   *buttons.Toolbar
-	ToolbarUI *ui.ToolbarUI
+    editor    *editor.Editor
+    terminal  *terminal.Terminal
+    toolbar   *buttons.Toolbar
+    ToolbarUI *ui.ToolbarUI
+    workspace *workspace.Workspace
+    level     levels.Level
+
+    filePanel *ui.FileSystemPanel   // ⭐ ADD THIS
 }
 
 func NewGame() *Game {
-	e := editor.New()
-	t := terminal.New()
-	lvl := levels.First()
+    // 1. Create workspace
+    ws := workspace.New()
 
-	t.LogInfo("Level: " + lvl.Title)
-	t.LogInfo(lvl.Description)
+    // 2. Load the first level
+    lvl := levels.First()
 
-	for _, line := range strings.Split(lvl.InitialBUILD, "\n") {
-		e.InsertLine(line)
-	}
+    // 3. Populate workspace with level files
+    for path, contents := range lvl.InitialFiles {
+        ws.Write(path, contents)
+    }
 
-	g := &Game{
-		editor:   e,
-		terminal: t,
-	}
+    // 4. Create editor bound to workspace
+    e := editor.New(ws)
 
-	g.initUI()
-	return g
+    // 5. Open the BUILD file by default
+    if ws.Exists("BUILD") {
+        e.Open("BUILD")
+    }
+
+    // 6. Create terminal
+    t := terminal.New()
+    t.LogInfo("Level: " + lvl.Title)
+    t.LogInfo(lvl.Description)
+
+    // 7. Create game struct
+    g := &Game{
+        editor:    e,
+        terminal:  t,
+        workspace: ws,   // NEW FIELD
+        level:     lvl,  // NEW FIELD
+    }
+
+    // 8. Initialize UI
+    g.initUI()
+
+    return g
 }
 
 func (g *Game) Update() error {
@@ -72,6 +94,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
     // 1. Draw your custom panels
     ui.DrawPanels(screen, w, h, fonts.EditorFont)
+
+    // ⭐ Draw the File System panel
+    g.filePanel.Draw(screen)
 
     // 2. Position editor + terminal inside their panels
     editorRect := ui.EditorBounds(w, h)
@@ -102,11 +127,21 @@ func main() {
 }
 
 func (g *Game) initUI() {
-	g.ToolbarUI = ui.NewToolbarUI(
-		func() { g.RunProgram() },
-		func() { g.BuildOnly() },
-		func() { g.FormatCode() },
-	)
+    g.ToolbarUI = ui.NewToolbarUI(
+        func() { g.RunProgram() },
+        func() { g.BuildOnly() },
+        func() { g.FormatCode() },
+    )
+
+    // ⭐ Add File System Panel
+    g.filePanel = ui.NewFileSystemPanel(
+        g.workspace,     // workspace reference
+        16, 80,          // x, y position
+        200, 600,        // width, height
+        func(path string) {
+            g.editor.Open(path) // open file in editor when clicked
+        },
+    )
 }
 
 func (g *Game) RunBuild() {

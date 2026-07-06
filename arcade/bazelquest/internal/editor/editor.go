@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	fonts "github.com/KennyHoang-CS/portfolio/bazelquest/internal/assets"
+	"github.com/KennyHoang-CS/portfolio/bazelquest/internal/workspace"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 )
@@ -15,6 +16,9 @@ type Editor struct {
 	offsetX    int
 	offsetY    int
 	lineHeight int
+
+	currentPath string
+	workspace   *workspace.Workspace
 }
 
 type Cursor struct {
@@ -22,7 +26,7 @@ type Cursor struct {
 	Col  int
 }
 
-func New() *Editor {
+func New(ws *workspace.Workspace) *Editor {
 	metrics := fonts.EditorFont.Metrics()
 	lineSpacing := metrics.HAscent + metrics.HDescent + metrics.HLineGap
 
@@ -32,7 +36,28 @@ func New() *Editor {
 		offsetX:    0,
 		offsetY:    0,
 		lineHeight: int(lineSpacing),
+
+		workspace: ws,
 	}
+}
+
+func (e *Editor) Open(path string) {
+    e.currentPath = path
+
+    if content, ok := e.workspace.Read(path); ok {
+        e.SetText(content)
+    } else {
+        // If file doesn't exist, create it empty
+        e.workspace.Write(path, "")
+        e.SetText("")
+    }
+}
+
+func (e *Editor) Save() {
+    if e.currentPath == "" {
+        return
+    }
+    e.workspace.Write(e.currentPath, e.Buffer())
 }
 
 // Allow UI to reposition editor dynamically
@@ -169,7 +194,7 @@ func (e *Editor) cursorPixelX() int {
 }
 
 func (e *Editor) SetText(s string) {
-    e.lines = strings.Split(s, "\n")
-    e.cursor.Line = 0
-    e.cursor.Col = 0
+	e.lines = strings.Split(s, "\n")
+	e.cursor.Line = 0
+	e.cursor.Col = 0
 }

@@ -4,8 +4,10 @@ type Level struct {
     ID           string
     Title        string
     Description  string
-    InitialBUILD string
     GoalHint     string
+
+    // NEW: All files that should exist in the virtual workspace
+    InitialFiles map[string]string
 }
 
 var all = []Level{}

@@ -21,8 +21,13 @@ type Player struct {
     attackTimer   float64
     attackFrame   int
 
-    lastDir int // -1 = left, +1 = right
+    lastDir        int // -1 = left, +1 = right
     attackCooldown float64
+
+    HP    float64
+    MaxHP float64
+    XP    float64
+    Level int
 }
 
 func NewPlayer() *Player {
@@ -45,7 +50,13 @@ func NewPlayer() *Player {
         Pos:   Vec{X: 400, Y: 300},
         Speed: 200,
         Idle:  idle,
+
         lastDir: 1,
+
+        HP:    100,
+        MaxHP: 100,
+        XP:    0,
+        Level: 1,
     }
 }
 
@@ -63,7 +74,6 @@ func (p *Player) Update(dt float64) {
         vy /= l
     }
 
-    // Track horizontal direction only
     if vx < 0 {
         p.lastDir = -1
     } else if vx > 0 {
@@ -82,16 +92,14 @@ func (p *Player) Update(dt float64) {
         p.attackTimer = 0
         p.attackFrame = 0
 
-        p.attackCooldown = 0.6 // delay between attacks
+        p.attackCooldown = 0.6
     }
 
-    // Wind-up phase
     if p.anticipation > 0 {
         p.anticipation -= dt
         return
     }
 
-    // Slash animation
     if p.attacking {
         p.attackTimer += dt
 
@@ -107,14 +115,14 @@ func (p *Player) Update(dt float64) {
         }
     }
 
-    // Recovery phase
     if p.recovery > 0 {
         p.recovery -= dt
     }
 }
 
 func (p *Player) DrawWithCamera(screen *ebiten.Image, camX, camY float64) {
-    // --- Draw smaller gopher ---
+
+    // --- Draw gopher (flip left/right) ---
     {
         op := &ebiten.DrawImageOptions{}
         src := p.Idle
@@ -123,14 +131,20 @@ func (p *Player) DrawWithCamera(screen *ebiten.Image, camX, camY float64) {
         targetH := 80.0
         scale := targetH / float64(srcH)
 
-        op.GeoM.Scale(scale, scale)
-        op.GeoM.Translate(-float64(srcW)*scale/2, -float64(srcH)*scale/2)
-        op.GeoM.Translate(p.Pos.X - camX, p.Pos.Y - camY)
+        if p.lastDir == -1 {
+            // Flip horizontally
+            op.GeoM.Scale(-scale, scale)
+            op.GeoM.Translate(float64(srcW)*scale/2, -float64(srcH)*scale/2)
+        } else {
+            op.GeoM.Scale(scale, scale)
+            op.GeoM.Translate(-float64(srcW)*scale/2, -float64(srcH)*scale/2)
+        }
 
+        op.GeoM.Translate(p.Pos.X-camX, p.Pos.Y-camY)
         screen.DrawImage(src, op)
     }
 
-    // --- Draw slash ---
+    // --- Draw slash (flip + taller) ---
     if p.attacking {
         sop := &ebiten.DrawImageOptions{}
         sop.Filter = ebiten.FilterNearest
@@ -138,13 +152,20 @@ func (p *Player) DrawWithCamera(screen *ebiten.Image, camX, camY float64) {
         src := slashFrames[p.attackFrame]
         srcW, srcH := src.Size()
 
-        targetW := 120.0
-        targetH := 45.0
+        targetW := 150.0
+        targetH := 80.0 // <-- increased height
 
         scaleX := targetW / float64(srcW)
         scaleY := targetH / float64(srcH)
 
-        sop.GeoM.Scale(scaleX, scaleY)
+        // Flip slash horizontally when facing left
+        if p.lastDir == -1 {
+            sop.GeoM.Scale(-scaleX, scaleY)
+            sop.GeoM.Translate(float64(srcW)*scaleX/2, -float64(srcH)*scaleY/2)
+        } else {
+            sop.GeoM.Scale(scaleX, scaleY)
+            sop.GeoM.Translate(-float64(srcW)*scaleX/2, -float64(srcH)*scaleY/2)
+        }
 
         if p.anticipation > 0 {
             sop.GeoM.Translate(0, -10)
@@ -154,13 +175,10 @@ func (p *Player) DrawWithCamera(screen *ebiten.Image, camX, camY float64) {
             sop.GeoM.Translate(0, 6)
         }
 
-        // Horizontal-only slash placement
         slashOffsetX := float64(p.lastDir) * 150.0
         slashOffsetY := -5.0
 
-        sop.GeoM.Translate(-float64(srcW)*scaleX/2, -float64(srcH)*scaleY/2)
-        sop.GeoM.Translate(p.Pos.X + slashOffsetX - camX, p.Pos.Y + slashOffsetY - camY)
-
+        sop.GeoM.Translate(p.Pos.X+slashOffsetX-camX, p.Pos.Y+slashOffsetY-camY)
         screen.DrawImage(src, sop)
     }
 }

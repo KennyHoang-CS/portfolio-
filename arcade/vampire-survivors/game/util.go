@@ -7,11 +7,13 @@ import (
 )
 
 func LoadImage(path string) *ebiten.Image {
-    img, _, err := ebitenutil.NewImageFromFile(path)
+    imgFile, _, err := ebitenutil.NewImageFromFile(path)
     if err != nil {
-        log.Fatalf("failed to load image %s: %v", path, err)
+        log.Fatal(err)
     }
-    return img
+
+    // No options allowed here — Ebiten only accepts the image itself
+    return ebiten.NewImageFromImage(imgFile)
 }
 
 type Vec struct {

@@ -1,184 +1,233 @@
 package game
 
 import (
-    "image"
-    "math"
+	"image"
+	"math"
 
-    "github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 var slashFrames []*ebiten.Image
 
 type Player struct {
-    Pos         Vec
-    Speed       float64
-    Idle        *ebiten.Image
+	Pos   Vec
+	Speed float64
+	Idle  *ebiten.Image
 
-    attacking     bool
-    anticipation  float64
-    recovery      float64
+	attacking    bool
+	anticipation float64
+	recovery     float64
 
-    attackTimer   float64
-    attackFrame   int
+	attackTimer    float64
+	attackFrame    int
+	lastDir        int // -1 = left, +1 = right
+	attackCooldown float64
 
-    lastDir        int // -1 = left, +1 = right
-    attackCooldown float64
+	HP    float64
+	MaxHP float64
+	XP    float64
+	Level int
 
-    HP    float64
-    MaxHP float64
-    XP    float64
-    Level int
+	// Slash stats (modified by CPU Overclock)
+	SlashDamage       float64
+	SlashRadius       float64
+	SlashCooldownBase float64
+
+	// Global buffs (modified by abilities)
+	MoveSpeedMultiplier   float64
+	AttackSpeedMultiplier float64
+	RegenPerSecond        float64
+
+	// Ability list
+	Abilities []*Ability
+
+	HasDagger          bool
 }
 
 func NewPlayer() *Player {
-    idle := LoadImage("assets/gopher_idle.png")
+	idle := LoadImage("assets/gopher_idle.png")
 
-    slashSheet := LoadImage("assets/slash.png")
-    w, h := slashSheet.Size()
+	// Load slash frames
+	slashSheet := LoadImage("assets/slash.png")
+	w, h := slashSheet.Size()
 
-    frameWidth := w / 4
-    frameHeight := h
+	frameWidth := w / 4
+	frameHeight := h
 
-    for i := 0; i < 4; i++ {
-        x0 := i * frameWidth
-        x1 := x0 + frameWidth
-        frame := slashSheet.SubImage(image.Rect(x0, 0, x1, frameHeight)).(*ebiten.Image)
-        slashFrames = append(slashFrames, frame)
-    }
+	for i := 0; i < 4; i++ {
+		x0 := i * frameWidth
+		x1 := x0 + frameWidth
+		frame := slashSheet.SubImage(image.Rect(x0, 0, x1, frameHeight)).(*ebiten.Image)
+		slashFrames = append(slashFrames, frame)
+	}
 
-    return &Player{
-        Pos:   Vec{X: 400, Y: 300},
-        Speed: 200,
-        Idle:  idle,
+	p := &Player{
+		Pos:   Vec{X: 400, Y: 300},
+		Speed: 200,
+		Idle:  idle,
 
-        lastDir: 1,
+		lastDir: 1,
 
-        HP:    100,
-        MaxHP: 100,
-        XP:    0,
-        Level: 1,
-    }
+		HP:    100,
+		MaxHP: 100,
+		XP:    0,
+		Level: 1,
+
+		SlashDamage:       5,
+		SlashRadius:       40,
+		SlashCooldownBase: 0.6,
+
+		MoveSpeedMultiplier:   1.0,
+		AttackSpeedMultiplier: 1.0,
+		RegenPerSecond:        0.0,
+		HasDagger:          false,
+	}
+
+	p.attackCooldown = p.SlashCooldownBase
+	return p
 }
 
 func (p *Player) Update(dt float64) {
-    vx, vy := 0.0, 0.0
+	vx, vy := 0.0, 0.0
 
-    if ebiten.IsKeyPressed(ebiten.KeyW) { vy -= 1 }
-    if ebiten.IsKeyPressed(ebiten.KeyS) { vy += 1 }
-    if ebiten.IsKeyPressed(ebiten.KeyA) { vx -= 1 }
-    if ebiten.IsKeyPressed(ebiten.KeyD) { vx += 1 }
+	// Movement input
+	if ebiten.IsKeyPressed(ebiten.KeyW) {
+		vy -= 1
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyS) {
+		vy += 1
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyA) {
+		vx -= 1
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyD) {
+		vx += 1
+	}
 
-    if vx != 0 || vy != 0 {
-        l := math.Hypot(vx, vy)
-        vx /= l
-        vy /= l
-    }
+	// Normalize diagonal movement
+	if vx != 0 || vy != 0 {
+		l := math.Hypot(vx, vy)
+		vx /= l
+		vy /= l
+	}
 
-    if vx < 0 {
-        p.lastDir = -1
-    } else if vx > 0 {
-        p.lastDir = 1
-    }
+	// Direction flipping
+	if vx < 0 {
+		p.lastDir = -1
+	} else if vx > 0 {
+		p.lastDir = 1
+	}
 
-    p.Pos.X += vx * p.Speed * dt
-    p.Pos.Y += vy * p.Speed * dt
+	// Movement speed buffs
+	speed := p.Speed * p.MoveSpeedMultiplier
+	p.Pos.X += vx * speed * dt
+	p.Pos.Y += vy * speed * dt
 
-    // --- AUTO ATTACK ---
-    p.attackCooldown -= dt
-    if p.attackCooldown <= 0 && !p.attacking {
-        p.attacking = true
-        p.anticipation = 0.05
-        p.recovery = 0
-        p.attackTimer = 0
-        p.attackFrame = 0
+	// Regen
+	if p.RegenPerSecond > 0 {
+		p.HP += p.RegenPerSecond * dt
+		if p.HP > p.MaxHP {
+			p.HP = p.MaxHP
+		}
+	}
 
-        p.attackCooldown = 0.6
-    }
+	// --- AUTO ATTACK ---
+	p.attackCooldown -= dt * p.AttackSpeedMultiplier
+	if p.attackCooldown <= 0 && !p.attacking {
+		p.attacking = true
+		p.anticipation = 0.05
+		p.recovery = 0
+		p.attackTimer = 0
+		p.attackFrame = 0
 
-    if p.anticipation > 0 {
-        p.anticipation -= dt
-        return
-    }
+		p.attackCooldown = p.SlashCooldownBase
+	}
 
-    if p.attacking {
-        p.attackTimer += dt
+	// Anticipation phase
+	if p.anticipation > 0 {
+		p.anticipation -= dt
+		return
+	}
 
-        if p.attackTimer > 0.08 {
-            p.attackTimer = 0
-            p.attackFrame++
+	// Slash animation
+	if p.attacking {
+		p.attackTimer += dt * p.AttackSpeedMultiplier
 
-            if p.attackFrame >= len(slashFrames) {
-                p.attacking = false
-                p.attackFrame = 0
-                p.recovery = 0.05
-            }
-        }
-    }
+		if p.attackTimer > 0.08 {
+			p.attackTimer = 0
+			p.attackFrame++
 
-    if p.recovery > 0 {
-        p.recovery -= dt
-    }
+			if p.attackFrame >= len(slashFrames) {
+				p.attacking = false
+				p.attackFrame = 0
+				p.recovery = 0.05
+			}
+		}
+	}
+
+	// Recovery phase
+	if p.recovery > 0 {
+		p.recovery -= dt
+	}
 }
 
 func (p *Player) DrawWithCamera(screen *ebiten.Image, camX, camY float64) {
 
-    // --- Draw gopher (flip left/right) ---
-    {
-        op := &ebiten.DrawImageOptions{}
-        src := p.Idle
+	// --- Draw gopher (flip left/right) ---
+	{
+		op := &ebiten.DrawImageOptions{}
+		src := p.Idle
 
-        srcW, srcH := src.Size()
-        targetH := 80.0
-        scale := targetH / float64(srcH)
+		srcW, srcH := src.Size()
+		targetH := 80.0
+		scale := targetH / float64(srcH)
 
-        if p.lastDir == -1 {
-            // Flip horizontally
-            op.GeoM.Scale(-scale, scale)
-            op.GeoM.Translate(float64(srcW)*scale/2, -float64(srcH)*scale/2)
-        } else {
-            op.GeoM.Scale(scale, scale)
-            op.GeoM.Translate(-float64(srcW)*scale/2, -float64(srcH)*scale/2)
-        }
+		if p.lastDir == -1 {
+			op.GeoM.Scale(-scale, scale)
+			op.GeoM.Translate(float64(srcW)*scale/2, -float64(srcH)*scale/2)
+		} else {
+			op.GeoM.Scale(scale, scale)
+			op.GeoM.Translate(-float64(srcW)*scale/2, -float64(srcH)*scale/2)
+		}
 
-        op.GeoM.Translate(p.Pos.X-camX, p.Pos.Y-camY)
-        screen.DrawImage(src, op)
-    }
+		op.GeoM.Translate(p.Pos.X-camX, p.Pos.Y-camY)
+		screen.DrawImage(src, op)
+	}
 
-    // --- Draw slash (flip + taller) ---
-    if p.attacking {
-        sop := &ebiten.DrawImageOptions{}
-        sop.Filter = ebiten.FilterNearest
+	// --- Draw slash ---
+	if p.attacking {
+		sop := &ebiten.DrawImageOptions{}
+		sop.Filter = ebiten.FilterNearest
 
-        src := slashFrames[p.attackFrame]
-        srcW, srcH := src.Size()
+		src := slashFrames[p.attackFrame]
+		srcW, srcH := src.Size()
 
-        targetW := 150.0
-        targetH := 80.0 // <-- increased height
+		targetW := 150.0
+		targetH := 80.0
 
-        scaleX := targetW / float64(srcW)
-        scaleY := targetH / float64(srcH)
+		scaleX := targetW / float64(srcW)
+		scaleY := targetH / float64(srcH)
 
-        // Flip slash horizontally when facing left
-        if p.lastDir == -1 {
-            sop.GeoM.Scale(-scaleX, scaleY)
-            sop.GeoM.Translate(float64(srcW)*scaleX/2, -float64(srcH)*scaleY/2)
-        } else {
-            sop.GeoM.Scale(scaleX, scaleY)
-            sop.GeoM.Translate(-float64(srcW)*scaleX/2, -float64(srcH)*scaleY/2)
-        }
+		if p.lastDir == -1 {
+			sop.GeoM.Scale(-scaleX, scaleY)
+			sop.GeoM.Translate(float64(srcW)*scaleX/2, -float64(srcH)*scaleY/2)
+		} else {
+			sop.GeoM.Scale(scaleX, scaleY)
+			sop.GeoM.Translate(-float64(srcW)*scaleX/2, -float64(srcH)*scaleY/2)
+		}
 
-        if p.anticipation > 0 {
-            sop.GeoM.Translate(0, -10)
-        }
+		if p.anticipation > 0 {
+			sop.GeoM.Translate(0, -10)
+		}
 
-        if p.recovery > 0 {
-            sop.GeoM.Translate(0, 6)
-        }
+		if p.recovery > 0 {
+			sop.GeoM.Translate(0, 6)
+		}
 
-        slashOffsetX := float64(p.lastDir) * 150.0
-        slashOffsetY := -5.0
+		slashOffsetX := float64(p.lastDir) * 150.0
+		slashOffsetY := -5.0
 
-        sop.GeoM.Translate(p.Pos.X+slashOffsetX-camX, p.Pos.Y+slashOffsetY-camY)
-        screen.DrawImage(src, sop)
-    }
+		sop.GeoM.Translate(p.Pos.X+slashOffsetX-camX, p.Pos.Y+slashOffsetY-camY)
+		screen.DrawImage(src, sop)
+	}
 }

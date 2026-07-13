@@ -32,21 +32,28 @@ type Ability struct {
 	Apply       func(g *Game)
 }
 
-type Orb struct {
-	Angle  float64
-	Radius float64
-	Speed  float64
-	Damage float64
-	Sprite *ebiten.Image
+type Projectile struct {
+    Pos    Vec
+    Vel    Vec
+    Damage float64
+    Alive  bool
+    Sprite *ebiten.Image
+
+    // Behavior flags
+    Lifetime int     // frames until despawn
+    Curve    float64 // boomerang arc
+    Return   bool    // flips direction mid-flight
+    Homing   bool    // seeks nearest enemy
+    Orbit    bool    // circles around player
+    Radius   float64 // orbit radius
+    Angle    float64 // orbit angle
+    Speed    float64 // movement speed
+
+    // Optional callbacks
+    OnHit    func(*Enemy)
+    OnUpdate func(*Projectile, *Game)
 }
 
-type Dagger struct {
-	Pos    Vec
-	Vel    Vec
-	Damage float64
-	Alive  bool
-	Sprite *ebiten.Image
-}
 
 type FireTile struct {
 	Pos    Vec
@@ -61,37 +68,39 @@ type StunWave struct {
 }
 
 type Game struct {
-	player        *Player
-	lastTime      time.Time
-	Enemies       []*Enemy
-	DamageNumbers []*DamageNumber
-	Crystals      []*Crystal
+    player        *Player
+    lastTime      time.Time
+    Enemies       []*Enemy
+    DamageNumbers []*DamageNumber
+    Crystals      []*Crystal
 
-	waveTimer  float64
-	waveNumber int
+    waveTimer  float64
+    waveNumber int
 
-	bg            *ebiten.Image
-	crystalSprite *ebiten.Image
+    bg            *ebiten.Image
+    crystalSprite *ebiten.Image
 
-	// Abilities
-	AvailableAbilities []*Ability
-	LevelUpMenuOpen    bool
-	LevelUpChoices     []*Ability
+    // Abilities
+    AvailableAbilities []*Ability
+    LevelUpMenuOpen    bool
+    LevelUpChoices     []*Ability
 
-	// Spell systems
-	Orbs      []*Orb
-	Daggers   []*Dagger
-	FireTiles []*FireTile
-	StunWaves []*StunWave
+    // Unified projectile system
+    Projectiles []*Projectile
 
-	// Global spell stats
-	CrystalMagnetRadius float64
-	InfiniteLoopChance  float64
+    // Fire tiles & waves remain separate
+    FireTiles []*FireTile
+    StunWaves []*StunWave
 
-	// Dagger
-	DaggerCooldown float64
-	DaggerRate     float64
+    // Global spell stats
+    CrystalMagnetRadius float64
+    InfiniteLoopChance  float64
+
+    // Dagger (now projectile)
+    DaggerCooldown float64
+    DaggerRate     float64
 }
+
 
 func PlaceholderIcon(r, g, b uint8) *ebiten.Image {
 	img := ebiten.NewImage(32, 32)
@@ -131,168 +140,272 @@ func NewGame() *Game {
 }
 
 func (g *Game) initAbilities() {
-	g.AvailableAbilities = []*Ability{
-		// {
-		// 	Name:        "CPU Overclock",
-		// 	Description: "Increase slash damage and attack speed.",
-		// 	Icon:        PlaceholderIcon(255, 80, 80),
-		// 	Apply: func(g *Game) {
-		// 		g.player.SlashDamage += 1
-		// 		g.player.SlashCooldownBase *= 0.9
-		// 		g.player.SlashRadius += 5
-		// 		g.player.AttackSpeedMultiplier += 0.05
-		// 	},
-		// },
-		// {
-		// 	Name:        "Garbage Collection",
-		// 	Description: "Magnet for crystals and tiny DoT to weak enemies.",
-		// 	Icon:        PlaceholderIcon(80, 80, 255),
-		// 	Apply: func(g *Game) {
-		// 		g.CrystalMagnetRadius += 40
-		// 	},
-		// },
-		// {
-		// 	Name:        "Type Error",
-		// 	Description: "Slow aura around the player. (placeholder)",
-		// 	Icon:        PlaceholderIcon(160, 80, 255),
-		// 	Apply: func(g *Game) {
-		// 		// Implement slow aura in enemy update/contact later
-		// 	},
-		// },
-		{
-			Name:        "Index Out of Range",
-			Description: "Shoot a dagger in facing direction. (placeholder buff)",
-			Icon:        PlaceholderIcon(255, 255, 80),
-			Apply: func(g *Game) {
-				// Fire a dagger immediately
-				g.player.HasDagger = true
-				dir := float64(g.player.lastDir)
-				d := &Dagger{
-					Pos:    Vec{X: g.player.Pos.X, Y: g.player.Pos.Y},
-					Vel:    Vec{X: dir * 400, Y: 0},
-					Damage: 10 + float64(g.player.Level)*2,
-					Alive:  true,
-					Sprite: PlaceholderIcon(255, 255, 80),
-				}
-				// Increase dagger fire rate + damage
-				g.DaggerRate *= 0.60 // 10% faster firing
-				g.Daggers = append(g.Daggers, d)
-			},
-		},
-		// {
-		// 	Name:        "Memory Leak",
-		// 	Description: "Leave fire tiles behind you. (placeholder buff)",
-		// 	Icon:        PlaceholderIcon(255, 120, 0),
-		// 	Apply: func(g *Game) {
-		// 		// Spawn fire tile at player's feet
-		// 		ft := &FireTile{
-		// 			Pos:    Vec{X: g.player.Pos.X, Y: g.player.Pos.Y},
-		// 			Life:   3.0,
-		// 			Damage: 5 + float64(g.player.Level),
-		// 		}
-		// 		g.FireTiles = append(g.FireTiles, ft)
-		// 	},
-		// },
-		// {
-		// 	Name:        "Segmentation Fault",
-		// 	Description: "Periodic stun wave. (placeholder buff)",
-		// 	Icon:        PlaceholderIcon(255, 255, 255),
-		// 	Apply: func(g *Game) {
-		// 		// Increase stun radius or duration later
-		// 	},
-		// },
-		// {
-		// 	Name:        "Infinite Loop",
-		// 	Description: "Chance to repeat spells.",
-		// 	Icon:        PlaceholderIcon(200, 200, 200),
-		// 	Apply: func(g *Game) {
-		// 		g.InfiniteLoopChance += 0.05
-		// 	},
-		// },
-		// {
-		// 	Name:        "Race Condition",
-		// 	Description: "Increase movement and attack speed.",
-		// 	Icon:        PlaceholderIcon(255, 200, 0),
-		// 	Apply: func(g *Game) {
-		// 		g.player.MoveSpeedMultiplier += 0.1
-		// 		g.player.AttackSpeedMultiplier += 0.05
-		// 	},
-		// },
-		// {
-		// 	Name:        "Deadlock",
-		// 	Description: "Freeze aura. (placeholder)",
-		// 	Icon:        PlaceholderIcon(0, 200, 255),
-		// 	Apply: func(g *Game) {
-		// 		// Implement freeze aura later
-		// 	},
-		// },
-		// {
-		// 	Name:        "Stack Overflow",
-		// 	Description: "Increase HP and regen.",
-		// 	Icon:        PlaceholderIcon(255, 0, 0),
-		// 	Apply: func(g *Game) {
-		// 		g.player.MaxHP += 20
-		// 		g.player.HP += 20
-		// 		g.player.RegenPerSecond += 1
-		// 	},
-		// },
-		// {
-		// 	Name:        "Heap Allocation",
-		// 	Description: "Orbiting orbs around the player.",
-		// 	Icon:        PlaceholderIcon(0, 255, 0),
-		// 	Apply: func(g *Game) {
-		// 		orb := &Orb{
-		// 			Angle:  rand.Float64() * math.Pi * 2,
-		// 			Radius: 60,
-		// 			Speed:  1.5,
-		// 			Damage: 5,
-		// 			Sprite: PlaceholderIcon(0, 255, 0),
-		// 		}
-		// 		g.Orbs = append(g.Orbs, orb)
-		// 	},
-		// },
-		// {
-		// 	Name:        "Compiler Optimization",
-		// 	Description: "Global cooldown and speed buffs.",
-		// 	Icon:        PlaceholderIcon(0, 255, 120),
-		// 	Apply: func(g *Game) {
-		// 		g.player.MoveSpeedMultiplier += 0.05
-		// 		g.player.AttackSpeedMultiplier += 0.05
-		// 	},
-		// },
-		// {
-		// 	Name:        "Thread Pool",
-		// 	Description: "Summoned minions (placeholder: extra orbs).",
-		// 	Icon:        PlaceholderIcon(120, 120, 255),
-		// 	Apply: func(g *Game) {
-		// 		orb := &Orb{
-		// 			Angle:  rand.Float64() * math.Pi * 2,
-		// 			Radius: 80,
-		// 			Speed:  2.0,
-		// 			Damage: 4,
-		// 			Sprite: PlaceholderIcon(120, 120, 255),
-		// 		}
-		// 		g.Orbs = append(g.Orbs, orb)
-		// 	},
-		// },
-		// {
-		// 	Name:        "Dependency Injection",
-		// 	Description: "Poison/DoT on hit (placeholder: extra damage).",
-		// 	Icon:        PlaceholderIcon(0, 200, 0),
-		// 	Apply: func(g *Game) {
-		// 		g.player.SlashDamage += 0.5
-		// 	},
-		// },
-		// {
-		// 	Name:        "API Rate Limit",
-		// 	Description: "Reduce spell cooldowns.",
-		// 	Icon:        PlaceholderIcon(200, 200, 0),
-		// 	Apply: func(g *Game) {
-		// 		g.player.AttackSpeedMultiplier += 0.05
-		// 	},
-		// },
-	}
+    g.AvailableAbilities = []*Ability{
+
+        // ----------------------------
+        // Offensive / Attack Modifiers
+        // ----------------------------
+
+        {
+            Name:        "CPU Overclock",
+            Description: "Increase slash damage and attack speed.",
+            Icon:        PlaceholderIcon(255, 80, 80),
+            Apply: func(g *Game) {
+                g.player.SlashDamage += 1
+                g.player.SlashCooldownBase *= 0.9
+                g.player.SlashRadius += 5
+                g.player.AttackSpeedMultiplier += 0.05
+            },
+        },
+
+        {
+            Name:        "Garbage Collection",
+            Description: "Magnet for crystals and tiny DoT to weak enemies.",
+            Icon:        PlaceholderIcon(80, 80, 255),
+            Apply: func(g *Game) {
+                g.CrystalMagnetRadius += 40
+            },
+        },
+
+        {
+            Name:        "Type Error",
+            Description: "Slow aura around the player. (placeholder)",
+            Icon:        PlaceholderIcon(160, 80, 255),
+            Apply: func(g *Game) {
+                // Implement slow aura later
+            },
+        },
+
+        {
+            Name:        "Callback Hell",
+            Description: "Throw a chaotic boomerang that goes out, comes back, and hits enemies twice.",
+            Icon:        PlaceholderIcon(255, 150, 0),
+            Apply: func(g *Game) {
+                dir := float64(g.player.lastDir)
+
+                b := &Projectile{
+                    Pos:    Vec{X: g.player.Pos.X, Y: g.player.Pos.Y},
+                    Vel:    Vec{X: dir * 350, Y: 0},
+                    Damage: 8 + float64(g.player.Level)*2,
+                    Alive:  true,
+                    Sprite: PlaceholderIcon(255, 150, 0),
+
+                    // boomerang behavior
+                    Lifetime: 45,
+                    Curve:    0.05,
+                    Return:   true,
+                }
+
+                g.Projectiles = append(g.Projectiles, b)
+            },
+        },
+
+        {
+            Name:        "Index Out of Range",
+            Description: "Shoot a dagger in facing direction.",
+            Icon:        PlaceholderIcon(255, 255, 80),
+            Apply: func(g *Game) {
+                g.player.HasDagger = true
+                dir := float64(g.player.lastDir)
+
+                d := &Projectile{
+                    Pos:    Vec{X: g.player.Pos.X, Y: g.player.Pos.Y},
+                    Vel:    Vec{X: dir * 400, Y: 0},
+                    Damage: 10 + float64(g.player.Level)*2,
+                    Alive:  true,
+                    Sprite: PlaceholderIcon(255, 255, 80),
+                }
+
+                g.DaggerRate *= 0.60
+                g.Projectiles = append(g.Projectiles, d)
+            },
+        },
+
+        {
+            Name:        "Memory Leak",
+            Description: "Leave fire tiles behind you.",
+            Icon:        PlaceholderIcon(255, 120, 0),
+            Apply: func(g *Game) {
+                ft := &FireTile{
+                    Pos:    Vec{X: g.player.Pos.X, Y: g.player.Pos.Y},
+                    Life:   3.0,
+                    Damage: 5 + float64(g.player.Level),
+                }
+                g.FireTiles = append(g.FireTiles, ft)
+            },
+        },
+
+        {
+            Name:        "Race Condition",
+            Description: "Increase movement and attack speed.",
+            Icon:        PlaceholderIcon(255, 200, 0),
+            Apply: func(g *Game) {
+                g.player.MoveSpeedMultiplier += 0.1
+                g.player.AttackSpeedMultiplier += 0.05
+            },
+        },
+
+        {
+            Name:        "Deadlock",
+            Description: "Freeze aura. (placeholder)",
+            Icon:        PlaceholderIcon(0, 200, 255),
+            Apply: func(g *Game) {
+                // Implement freeze aura later
+            },
+        },
+
+        {
+            Name:        "Stack Overflow",
+            Description: "Increase HP and regen.",
+            Icon:        PlaceholderIcon(255, 0, 0),
+            Apply: func(g *Game) {
+                g.player.MaxHP += 20
+                g.player.HP += 20
+                g.player.RegenPerSecond += 1
+            },
+        },
+
+        // ----------------------------
+        // Summons / Orbitals
+        // ----------------------------
+
+        {
+            Name:        "Heap Allocation",
+            Description: "Orbiting orbs around the player.",
+            Icon:        PlaceholderIcon(0, 255, 0),
+            Apply: func(g *Game) {
+                orb := &Projectile{
+                    Pos:    g.player.Pos,
+                    Alive:  true,
+                    Damage: 5,
+                    Sprite: PlaceholderIcon(0, 255, 0),
+
+                    Orbit:  true,
+                    Angle:  rand.Float64() * math.Pi * 2,
+                    Radius: 60,
+                    Speed:  1.5,
+                }
+                g.Projectiles = append(g.Projectiles, orb)
+            },
+        },
+
+        {
+            Name:        "Compiler Optimization",
+            Description: "Global cooldown and speed buffs.",
+            Icon:        PlaceholderIcon(0, 255, 120),
+            Apply: func(g *Game) {
+                g.player.MoveSpeedMultiplier += 0.05
+                g.player.AttackSpeedMultiplier += 0.05
+            },
+        },
+
+        {
+            Name:        "AI Agents",
+            Description: "Summons autonomous mini‑gophers that seek and damage enemies.",
+            Icon:        PlaceholderIcon(120, 255, 255),
+            Apply: func(g *Game) {
+                for i := 0; i < 2; i++ {
+                    agent := &Projectile{
+                        Pos:    g.player.Pos,
+                        Alive:  true,
+                        Damage: 6 + float64(g.player.Level),
+                        Sprite: PlaceholderIcon(120, 255, 255),
+
+                        Homing: true,
+                        Speed:  2.5,
+                        Vel:    Vec{X: rand.Float64()*2 - 1, Y: rand.Float64()*2 - 1},
+                    }
+                    g.Projectiles = append(g.Projectiles, agent)
+                }
+            },
+        },
+
+        // ----------------------------
+        // Projectiles / Spells
+        // ----------------------------
+
+        {
+            Name:        "Dependency Injection",
+            Description: "Injects a burst of energy forward that damages enemies.",
+            Icon:        PlaceholderIcon(0, 200, 0),
+            Apply: func(g *Game) {
+                dir := float64(g.player.lastDir)
+
+                injection := &Projectile{
+                    Pos:    Vec{X: g.player.Pos.X, Y: g.player.Pos.Y},
+                    Vel:    Vec{X: dir * 300, Y: 0},
+                    Damage: 12 + float64(g.player.Level)*2.5,
+                    Alive:  true,
+                    Sprite: PlaceholderIcon(0, 200, 0),
+                }
+
+                g.Projectiles = append(g.Projectiles, injection)
+                g.DaggerRate *= 0.85
+            },
+        },
+
+        {
+            Name:        "Merge Conflict",
+            Description: "Perform a 360° cleave, damaging all nearby enemies.",
+            Icon:        PlaceholderIcon(255, 50, 50),
+            Apply: func(g *Game) {
+                radius := 90.0
+                damage := 12 + float64(g.player.Level)*2.5
+
+                for _, e := range g.Enemies {
+                    dx := e.Pos.X - g.player.Pos.X
+                    dy := e.Pos.Y - g.player.Pos.Y
+                    dist := math.Hypot(dx, dy)
+
+                    if dist <= radius {
+                        e.HP -= damage
+
+                        g.DamageNumbers = append(g.DamageNumbers, &DamageNumber{
+                            X:     e.Pos.X,
+                            Y:     e.Pos.Y - 10,
+                            Value: int(damage),
+                            Life:  1.0,
+                        })
+                    }
+                }
+            },
+        },
+
+        {
+            Name:        "Return Statement",
+            Description: "Throws a code‑boomerang that damages enemies on the way out and on the way back.",
+            Icon:        PlaceholderIcon(200, 255, 180),
+            Apply: func(g *Game) {
+                dir := float64(g.player.lastDir)
+
+                boomerang := &Projectile{
+                    Pos:      Vec{X: g.player.Pos.X, Y: g.player.Pos.Y},
+                    Vel:      Vec{X: dir * 6, Y: 0},
+                    Damage:   8 + float64(g.player.Level),
+                    Alive:    true,
+                    Sprite:   PlaceholderIcon(200, 255, 180),
+
+                    Lifetime: 45,
+                    Curve:    0.05,
+                    Return:   true,
+                }
+
+                g.Projectiles = append(g.Projectiles, boomerang)
+            },
+        },
+
+        {
+            Name:        "API Rate Limit",
+            Description: "Reduce spell cooldowns.",
+            Icon:        PlaceholderIcon(200, 200, 0),
+            Apply: func(g *Game) {
+                g.player.AttackSpeedMultiplier += 0.05
+            },
+        },
+    }
 }
+
+
 
 func (g *Game) CameraOffset() (float64, float64) {
 	return g.player.Pos.X - 400, g.player.Pos.Y - 300
@@ -342,126 +455,153 @@ func (g *Game) Update() error {
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
-	camX, camY := g.CameraOffset()
+    camX, camY := g.CameraOffset()
 
-	tileW, tileH := g.bg.Size()
-	for x := -tileW; x < 800+tileW; x += tileW {
-		for y := -tileH; y < 600+tileH; y += tileH {
-			op := &ebiten.DrawImageOptions{}
-			op.GeoM.Translate(
-				float64(x)-math.Mod(camX, float64(tileW)),
-				float64(y)-math.Mod(camY, float64(tileH)),
-			)
-			screen.DrawImage(g.bg, op)
-		}
-	}
+    // ----------------------------
+    // Draw Background (Tiled)
+    // ----------------------------
+    tileW, tileH := g.bg.Size()
+    for x := -tileW; x < 800+tileW; x += tileW {
+        for y := -tileH; y < 600+tileH; y += tileH {
+            op := &ebiten.DrawImageOptions{}
+            op.GeoM.Translate(
+                float64(x)-math.Mod(camX, float64(tileW)),
+                float64(y)-math.Mod(camY, float64(tileH)),
+            )
+            screen.DrawImage(g.bg, op)
+        }
+    }
 
-	g.player.DrawWithCamera(screen, camX, camY)
+    // ----------------------------
+    // Draw Player
+    // ----------------------------
+    g.player.DrawWithCamera(screen, camX, camY)
 
-	// Draw enemies
-	for _, e := range g.Enemies {
-		if !e.Alive || e.Type == nil || e.Type.Sprite == nil {
-			continue
-		}
+    // ----------------------------
+    // Draw Enemies
+    // ----------------------------
+    for _, e := range g.Enemies {
+        if !e.Alive || e.Type == nil || e.Type.Sprite == nil {
+            continue
+        }
 
-		w, h := e.Type.Sprite.Size()
+        w, h := e.Type.Sprite.Size()
+        scale := e.Type.Scale * (e.Radius * 2) / float64(h)
 
-		// Keep your original scale logic
-		scale := e.Type.Scale * (e.Radius * 2) / float64(h)
+        px := e.Pos.X - camX - float64(w)*scale/2
+        py := e.Pos.Y - camY - float64(h)*scale/2
 
-		// Compute top-left BEFORE rounding
-		px := e.Pos.X - camX - float64(w)*scale/2
-		py := e.Pos.Y - camY - float64(h)*scale/2
+        px = math.Round(px)
+        py = math.Round(py)
 
-		// Snap ONLY translation to pixel grid
-		px = math.Round(px)
-		py = math.Round(py)
+        // Outline
+        outline := &ebiten.DrawImageOptions{}
+        outline.Filter = ebiten.FilterNearest
+        outline.GeoM.Scale(scale, scale)
+        outline.GeoM.Translate(px, py)
+        outline.ColorM.Scale(0, 0, 0, 0.6)
+        screen.DrawImage(e.Type.Sprite, outline)
 
-		// Outline
-		outline := &ebiten.DrawImageOptions{}
-		outline.Filter = ebiten.FilterNearest
-		outline.GeoM.Scale(scale, scale)
-		outline.GeoM.Translate(px, py)
-		outline.ColorM.Scale(0, 0, 0, 0.6)
-		screen.DrawImage(e.Type.Sprite, outline)
+        // Main sprite
+        op := &ebiten.DrawImageOptions{}
+        op.Filter = ebiten.FilterNearest
+        op.GeoM.Scale(scale, scale)
+        op.GeoM.Translate(px, py)
 
-		// Main sprite
-		op := &ebiten.DrawImageOptions{}
-		op.Filter = ebiten.FilterNearest
-		op.GeoM.Scale(scale, scale)
-		op.GeoM.Translate(px, py)
+        if e.HitFlash > 0 {
+            op.ColorM.Scale(2, 2, 2, 1)
+        }
 
-		if e.HitFlash > 0 {
-			op.ColorM.Scale(2, 2, 2, 1)
-		}
+        screen.DrawImage(e.Type.Sprite, op)
+    }
 
-		screen.DrawImage(e.Type.Sprite, op)
-	}
+    // ----------------------------
+    // Draw Crystals (bobbing)
+    // ----------------------------
+    for _, c := range g.Crystals {
+        if !c.Alive {
+            continue
+        }
 
-	// Draw crystals (scaled + bobbing)
-	for _, c := range g.Crystals {
-		if !c.Alive {
-			continue
-		}
+        w, h := c.Sprite.Size()
+        op := &ebiten.DrawImageOptions{}
 
-		w, h := c.Sprite.Size()
-		op := &ebiten.DrawImageOptions{}
+        scale := 0.1
+        op.GeoM.Scale(scale, scale)
 
-		scale := 0.1
-		op.GeoM.Scale(scale, scale)
+        bob := math.Sin(float64(time.Now().UnixNano())*0.000000005) * 2
 
-		bob := math.Sin(float64(time.Now().UnixNano())*0.000000005) * 2
+        op.GeoM.Translate(
+            c.Pos.X-camX-float64(w)*scale/2,
+            c.Pos.Y-camY-float64(h)*scale/2+bob,
+        )
 
-		op.GeoM.Translate(
-			c.Pos.X-camX-float64(w)*scale/2,
-			c.Pos.Y-camY-float64(h)*scale/2+bob,
-		)
+        screen.DrawImage(c.Sprite, op)
+    }
 
-		screen.DrawImage(c.Sprite, op)
-	}
+    // ----------------------------
+    // Draw Projectiles (Unified)
+    // ----------------------------
+    for _, p := range g.Projectiles {
+        if !p.Alive || p.Sprite == nil {
+            continue
+        }
 
-	// Draw orbs
-	for _, orb := range g.Orbs {
-		op := &ebiten.DrawImageOptions{}
-		x := g.player.Pos.X + math.Cos(orb.Angle)*orb.Radius - camX
-		y := g.player.Pos.Y + math.Sin(orb.Angle)*orb.Radius - camY
-		op.GeoM.Translate(x, y)
-		screen.DrawImage(orb.Sprite, op)
-	}
+        op := &ebiten.DrawImageOptions{}
 
-	// Draw daggers
-	for _, d := range g.Daggers {
-		if !d.Alive {
-			continue
-		}
-		op := &ebiten.DrawImageOptions{}
-		op.GeoM.Translate(d.Pos.X-camX, d.Pos.Y-camY)
-		screen.DrawImage(d.Sprite, op)
-	}
+        // Orbiting projectiles (Heap Allocation)
+        if p.Orbit {
+            x := g.player.Pos.X + math.Cos(p.Angle)*p.Radius - camX
+            y := g.player.Pos.Y + math.Sin(p.Angle)*p.Radius - camY
+            op.GeoM.Translate(x, y)
+            screen.DrawImage(p.Sprite, op)
+            continue
+        }
 
-	// Draw fire tiles
-	for _, ft := range g.FireTiles {
-		op := &ebiten.DrawImageOptions{}
-		op.GeoM.Translate(ft.Pos.X-camX, ft.Pos.Y-camY)
-		screen.DrawImage(PlaceholderIcon(255, 120, 0), op)
-	}
+        // Normal / homing / boomerang projectiles
+        px := p.Pos.X - camX
+        py := p.Pos.Y - camY
 
-	// Damage numbers
-	for _, dn := range g.DamageNumbers {
-		ebitenutil.DebugPrintAt(
-			screen,
-			fmt.Sprintf("%d", dn.Value),
-			int(dn.X-camX),
-			int(dn.Y-camY),
-		)
-	}
+        px = math.Round(px)
+        py = math.Round(py)
 
-	g.drawHPBar(screen)
-	g.drawXPBar(screen)
+        op.GeoM.Translate(px, py)
+        screen.DrawImage(p.Sprite, op)
+    }
 
-	if g.LevelUpMenuOpen {
-		g.drawLevelUpMenu(screen)
-	}
+    // ----------------------------
+    // Draw Fire Tiles
+    // ----------------------------
+    for _, ft := range g.FireTiles {
+        op := &ebiten.DrawImageOptions{}
+        op.GeoM.Translate(ft.Pos.X-camX, ft.Pos.Y-camY)
+        screen.DrawImage(PlaceholderIcon(255, 120, 0), op)
+    }
+
+    // ----------------------------
+    // Draw Damage Numbers
+    // ----------------------------
+    for _, dn := range g.DamageNumbers {
+        ebitenutil.DebugPrintAt(
+            screen,
+            fmt.Sprintf("%d", dn.Value),
+            int(dn.X-camX),
+            int(dn.Y-camY),
+        )
+    }
+
+    // ----------------------------
+    // UI Bars
+    // ----------------------------
+    g.drawHPBar(screen)
+    g.drawXPBar(screen)
+
+    // ----------------------------
+    // Level Up Menu
+    // ----------------------------
+    if g.LevelUpMenuOpen {
+        g.drawLevelUpMenu(screen)
+    }
 }
 
 func (g *Game) Layout(w, h int) (int, int) {
@@ -625,116 +765,180 @@ func (g *Game) pickAbility(idx int) {
 }
 
 func (g *Game) updateSpells(dt float64) {
-	// Orbs orbit and damage enemies
-	for _, orb := range g.Orbs {
-		orb.Angle += orb.Speed * dt
-		ox := g.player.Pos.X + math.Cos(orb.Angle)*orb.Radius
-		oy := g.player.Pos.Y + math.Sin(orb.Angle)*orb.Radius
 
-		for _, e := range g.Enemies {
-			if !e.Alive {
-				continue
-			}
-			dx := e.Pos.X - ox
-			dy := e.Pos.Y - oy
-			dist := math.Hypot(dx, dy)
-			if dist < e.Radius+10 {
-				e.HP -= orb.Damage
-				if e.HP <= 0 {
-					e.Alive = false
-					g.Crystals = append(g.Crystals, &Crystal{
-						Pos:    Vec{X: e.Pos.X, Y: e.Pos.Y},
-						Alive:  true,
-						Sprite: g.crystalSprite,
-					})
-				}
-			}
-		}
-	}
+    // ----------------------------------------
+    // 1. DAGGER AUTO-FIRE (still valid)
+    // ----------------------------------------
+    if g.player.HasDagger {
+        g.DaggerCooldown -= dt
+        if g.DaggerCooldown <= 0 {
+            g.fireDagger() // now spawns a Projectile
+            g.DaggerCooldown = g.DaggerRate
+        }
+    }
 
-	// --- DAGGER FIRING (only if unlocked) ---
-	if g.player.HasDagger {
-		g.DaggerCooldown -= dt
-		if g.DaggerCooldown <= 0 {
-			g.fireDagger()
-			g.DaggerCooldown = g.DaggerRate
-		}
-	}
+    // ----------------------------------------
+    // 2. PROJECTILE UPDATE LOOP (Unified)
+    // ----------------------------------------
+    for _, p := range g.Projectiles {
+        if !p.Alive {
+            continue
+        }
 
-	// --- DAGGER MOVEMENT + COLLISION ---
-	for _, d := range g.Daggers {
-		if !d.Alive {
-			continue
-		}
+        // ----------------------------
+        // Orbiting projectiles
+        // ----------------------------
+        if p.Orbit {
+            p.Angle += p.Speed * dt
+            p.Pos.X = g.player.Pos.X + math.Cos(p.Angle)*p.Radius
+            p.Pos.Y = g.player.Pos.Y + math.Sin(p.Angle)*p.Radius
+        } else {
 
-		d.Pos.X += d.Vel.X * dt
-		d.Pos.Y += d.Vel.Y * dt
+            // ----------------------------
+            // Homing projectiles
+            // ----------------------------
+            if p.Homing {
+                var target *Enemy
+                minDist := 999999.0
 
-		// Hit enemies
-		for _, e := range g.Enemies {
-			if !e.Alive {
-				continue
-			}
-			dx := e.Pos.X - d.Pos.X
-			dy := e.Pos.Y - d.Pos.Y
-			dist := math.Hypot(dx, dy)
-			if dist < e.Radius+8 {
-				e.HP -= d.Damage
-				d.Alive = false
-				if e.HP <= 0 {
-					e.Alive = false
-					g.Crystals = append(g.Crystals, &Crystal{
-						Pos:    Vec{X: e.Pos.X, Y: e.Pos.Y},
-						Alive:  true,
-						Sprite: g.crystalSprite,
-					})
-				}
-			}
-		}
-	}
+                for _, e := range g.Enemies {
+                    if !e.Alive {
+                        continue
+                    }
+                    dx := e.Pos.X - p.Pos.X
+                    dy := e.Pos.Y - p.Pos.Y
+                    dist := math.Hypot(dx, dy)
+                    if dist < minDist {
+                        minDist = dist
+                        target = e
+                    }
+                }
 
-	// Remove dead daggers
-	for i := len(g.Daggers) - 1; i >= 0; i-- {
-		if !g.Daggers[i].Alive {
-			g.Daggers = append(g.Daggers[:i], g.Daggers[i+1:]...)
-		}
-	}
+                if target != nil {
+                    dx := target.Pos.X - p.Pos.X
+                    dy := target.Pos.Y - p.Pos.Y
+                    d := math.Hypot(dx, dy)
+                    if d > 0 {
+                        p.Vel.X = (dx / d) * p.Speed
+                        p.Vel.Y = (dy / d) * p.Speed
+                    }
+                }
+            }
 
-	// --- FIRE TRAIL ---
-	for _, ft := range g.FireTiles {
-		ft.Life -= dt
-		if ft.Life <= 0 {
-			ft.Life = 0
-		}
+            // ----------------------------
+            // Boomerang curve
+            // ----------------------------
+            if p.Curve != 0 {
+                p.Vel.Y += p.Curve
+            }
 
-		for _, e := range g.Enemies {
-			if !e.Alive {
-				continue
-			}
-			dx := e.Pos.X - ft.Pos.X
-			dy := e.Pos.Y - ft.Pos.Y
-			dist := math.Hypot(dx, dy)
-			if dist < e.Radius+20 {
-				e.HP -= ft.Damage * dt
-				if e.HP <= 0 {
-					e.Alive = false
-					g.Crystals = append(g.Crystals, &Crystal{
-						Pos:    Vec{X: e.Pos.X, Y: e.Pos.Y},
-						Alive:  true,
-						Sprite: g.crystalSprite,
-					})
-				}
-			}
-		}
-	}
+            // ----------------------------
+            // Boomerang return
+            // ----------------------------
+            if p.Return && p.Lifetime == 20 { // halfway
+                p.Vel.X *= -1
+                p.Vel.Y *= -1
+            }
 
-	// Remove expired fire tiles
-	for i := len(g.FireTiles) - 1; i >= 0; i-- {
-		if g.FireTiles[i].Life <= 0 {
-			g.FireTiles = append(g.FireTiles[:i], g.FireTiles[i+1:]...)
-		}
-	}
+            // ----------------------------
+            // Movement
+            // ----------------------------
+            p.Pos.X += p.Vel.X * dt
+            p.Pos.Y += p.Vel.Y * dt
+        }
 
+        // ----------------------------
+        // Lifetime expiration
+        // ----------------------------
+        if p.Lifetime > 0 {
+            p.Lifetime--
+            if p.Lifetime <= 0 {
+                p.Alive = false
+                continue
+            }
+        }
+
+        // ----------------------------
+        // Collision with enemies
+        // ----------------------------
+        for _, e := range g.Enemies {
+            if !e.Alive {
+                continue
+            }
+
+            dx := e.Pos.X - p.Pos.X
+            dy := e.Pos.Y - p.Pos.Y
+            dist := math.Hypot(dx, dy)
+
+            if dist < e.Radius+10 {
+                e.HP -= p.Damage
+
+                if p.OnHit != nil {
+                    p.OnHit(e)
+                }
+
+                // Non-orbiting projectiles disappear on hit
+                if !p.Orbit {
+                    p.Alive = false
+                }
+
+                if e.HP <= 0 {
+                    e.Alive = false
+                    g.Crystals = append(g.Crystals, &Crystal{
+                        Pos:    Vec{X: e.Pos.X, Y: e.Pos.Y},
+                        Alive:  true,
+                        Sprite: g.crystalSprite,
+                    })
+                }
+            }
+        }
+    }
+
+    // ----------------------------------------
+    // 3. Remove dead projectiles
+    // ----------------------------------------
+    for i := len(g.Projectiles) - 1; i >= 0; i-- {
+        if !g.Projectiles[i].Alive {
+            g.Projectiles = append(g.Projectiles[:i], g.Projectiles[i+1:]...)
+        }
+    }
+
+    // ----------------------------------------
+    // 4. FIRE TILES (unchanged)
+    // ----------------------------------------
+    for _, ft := range g.FireTiles {
+        ft.Life -= dt
+        if ft.Life <= 0 {
+            ft.Life = 0
+        }
+
+        for _, e := range g.Enemies {
+            if !e.Alive {
+                continue
+            }
+            dx := e.Pos.X - ft.Pos.X
+            dy := e.Pos.Y - ft.Pos.Y
+            dist := math.Hypot(dx, dy)
+            if dist < e.Radius+20 {
+                e.HP -= ft.Damage * dt
+                if e.HP <= 0 {
+                    e.Alive = false
+                    g.Crystals = append(g.Crystals, &Crystal{
+                        Pos:    Vec{X: e.Pos.X, Y: e.Pos.Y},
+                        Alive:  true,
+                        Sprite: g.crystalSprite,
+                    })
+                }
+            }
+        }
+    }
+
+    // Remove expired fire tiles
+    for i := len(g.FireTiles) - 1; i >= 0; i-- {
+        if g.FireTiles[i].Life <= 0 {
+            g.FireTiles = append(g.FireTiles[:i], g.FireTiles[i+1:]...)
+        }
+    }
 }
 
 func (g *Game) resolveEnemyCollisions(dt float64) {
@@ -866,15 +1070,19 @@ func (g *Game) drawLevelUpMenu(screen *ebiten.Image) {
 }
 
 func (g *Game) fireDagger() {
-	dir := float64(g.player.lastDir)
+    dir := float64(g.player.lastDir)
 
-	d := &Dagger{
-		Pos:    Vec{X: g.player.Pos.X, Y: g.player.Pos.Y},
-		Vel:    Vec{X: dir * 400, Y: 0},
-		Damage: 10 + float64(g.player.Level)*2,
-		Alive:  true,
-		Sprite: PlaceholderIcon(255, 255, 80),
-	}
+    p := &Projectile{
+        Pos:    Vec{X: g.player.Pos.X, Y: g.player.Pos.Y},
+        Vel:    Vec{X: dir * 400, Y: 0},
+        Damage: 10 + float64(g.player.Level)*2,
+        Alive:  true,
+        Sprite: PlaceholderIcon(255, 255, 80),
 
-	g.Daggers = append(g.Daggers, d)
+        // projectile behavior
+        Speed:  400,   // optional, used by homing logic
+        Lifetime: 60,  // optional, despawns after ~1 sec
+    }
+
+    g.Projectiles = append(g.Projectiles, p)
 }

@@ -36,6 +36,12 @@ func (e *Enemy) Update(dt float64, playerPos Vec) {
         }
     }
 
+    // ⭐ Training dummy check: if Speed == 0, do NOT move
+    if e.Speed <= 0 {
+        return
+    }
+
+    // Normal monster movement
     dx := playerPos.X - e.Pos.X
     dy := playerPos.Y - e.Pos.Y
     dist := math.Hypot(dx, dy)
@@ -45,3 +51,4 @@ func (e *Enemy) Update(dt float64, playerPos Vec) {
         e.Pos.Y += (dy / dist) * e.Speed * dt
     }
 }
+

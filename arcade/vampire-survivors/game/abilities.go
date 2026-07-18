@@ -3,18 +3,7 @@ package game
 import (
     "math"
     "math/rand"
-
-    "github.com/hajimehoshi/ebiten/v2"
 )
-
-type Ability struct {
-    Name        string
-    Description string
-    Level       int
-    Icon        *ebiten.Image
-    Enabled     bool
-    Apply       func(g *Game) // runs every frame if Enabled
-}
 
 // ---------------------------------------------------------
 // Ability Toggle Helpers

@@ -1,6 +1,7 @@
 package game
 
 import (
+    "image"
     "image/color"
 
     "github.com/hajimehoshi/ebiten/v2"
@@ -10,39 +11,53 @@ import (
 )
 
 const (
-    GridTop    = 160
-    CellWidth  = 260
-    CellHeight = 100
-    Columns    = 3
+    headerHeight = 80
+    cellWidth    = 720
+    cellHeight   = 120
 )
 
+func (g *Game) pointingDevicePosition() (x, y int) {
+    touchIDs := ebiten.AppendTouchIDs(nil)
+    if len(touchIDs) > 0 {
+        return ebiten.TouchPosition(touchIDs[0])
+    }
+    return ebiten.CursorPosition()
+}
+
+func (g *Game) isPointingDevicePressed() bool {
+    touchIDs := ebiten.AppendTouchIDs(nil)
+    if len(touchIDs) > 0 {
+        return true
+    }
+    return ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+}
+
+func (g *Game) isPointingDeviceJustReleased() bool {
+    touchIDs := inpututil.AppendJustReleasedTouchIDs(nil)
+    if len(touchIDs) > 0 {
+        return true
+    }
+    return inpututil.IsMouseButtonJustReleased(ebiten.MouseButtonLeft)
+}
+
 func (g *Game) updateToggleUI() {
-    // Desktop: TAB opens UI
+    // Open/close
     if inpututil.IsKeyJustPressed(ebiten.KeyTab) {
         g.ToggleUIOpen = true
     }
-
-    // Desktop: ESC closes UI
     if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
         g.ToggleUIOpen = false
     }
 
-    // ---------------------------------------------------------
-    // Mobile: tap the Abilities button
-    // ---------------------------------------------------------
-    var ids []ebiten.TouchID
-    ids = ebiten.AppendTouchIDs(ids)
-
-    for _, id := range ids {
+    // Mobile button
+    touchIDs := ebiten.AppendTouchIDs(nil)
+    for _, id := range touchIDs {
         tx, ty := ebiten.TouchPosition(id)
         if tx >= 10 && tx <= 150 && ty >= 540 && ty <= 590 {
             g.ToggleUIOpen = true
         }
     }
 
-    // ---------------------------------------------------------
-    // Desktop: single-click toggle (smooth)
-    // ---------------------------------------------------------
     if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
         mx, my := ebiten.CursorPosition()
         g.handleToggleTouch(mx, my)
@@ -52,74 +67,114 @@ func (g *Game) updateToggleUI() {
         return
     }
 
-    // ---------------------------------------------------------
-    // SCROLLING (desktop wheel)
-    // ---------------------------------------------------------
-    _, wheelY := ebiten.Wheel()
-    g.ScrollOffset += wheelY * -20
+    // Define scrollable content area
+    g.contentArea = image.Rect(
+        40,
+        80+headerHeight,
+        40+cellWidth,
+        520,
+    )
 
-    // ---------------------------------------------------------
-    // SCROLLING (mobile drag)
-    // ---------------------------------------------------------
-    ids = ids[:0]
-    ids = ebiten.AppendTouchIDs(ids)
+    x, y := g.pointingDevicePosition()
+    hovering := image.Pt(x, y).In(g.contentArea)
 
-    if len(ids) > 0 {
-        id := ids[0]
-        _, ty := ebiten.TouchPosition(id)
+    // Wheel scroll
+    if _, wheelY := ebiten.Wheel(); wheelY != 0 && hovering {
+        g.ToggleVelocityY = int(wheelY * -15)
+    }
 
-        if g.LastTouchActive {
-            dy := float64(ty - g.LastTouchY)
-            g.ScrollOffset += dy
+    // Release → inertia
+    if g.isPointingDeviceJustReleased() && g.ToggleDragging {
+        g.ToggleDragging = false
+        g.ToggleVelocityY = y - g.TogglePrevY
+        g.TogglePrevY = y
+        return
+    }
+
+    // Inertia
+    if !g.isPointingDevicePressed() {
+        g.ToggleDragging = false
+
+        g.setInfiniteOffsetY(g.ToggleOffsetY + g.ToggleVelocityY)
+        if g.ToggleVelocityY != 0 {
+            g.ToggleVelocityY = int(float64(g.ToggleVelocityY) * 15.0 / 16.0)
         }
-
-        g.LastTouchY = ty
-        g.LastTouchActive = true
-    } else {
-        g.LastTouchActive = false
+        g.TogglePrevY = y
+        return
     }
 
-    // ---------------------------------------------------------
-    // Clamp scroll offset (with bottom padding)
-    // ---------------------------------------------------------
-    rows := (len(g.AvailableAbilities) + Columns - 1) / Columns
-    maxScroll := float64(rows*CellHeight - (520 - GridTop) + 20)
+    // Stop inertia
+    g.ToggleVelocityY = 0
 
-    if g.ScrollOffset < 0 {
-        g.ScrollOffset = 0
-    }
-    if g.ScrollOffset > maxScroll {
-        g.ScrollOffset = maxScroll
+    // Start dragging
+    if !g.ToggleDragging && hovering {
+        g.ToggleDragging = true
+        g.ToggleOffsetStartY = g.ToggleOffsetY
+        g.ToggleStartY = y
     }
 
-    // ---------------------------------------------------------
-    // Mobile: handle toggles (touch)
-    // ---------------------------------------------------------
-    for _, id := range ids {
-        tx, ty := ebiten.TouchPosition(id)
-        g.handleToggleTouch(tx, ty)
+    // Dragging
+    if g.ToggleDragging {
+        g.setInfiniteOffsetY(g.ToggleOffsetStartY + y - g.ToggleStartY)
     }
+
+    g.TogglePrevY = y
 }
 
-// ---------------------------------------------------------
-// Handle checkbox clicks / taps
-// ---------------------------------------------------------
+func (g *Game) setInfiniteOffsetY(offsetY int) {
+    contentHeight := len(g.AvailableAbilities) * cellHeight
+    if contentHeight == 0 {
+        return
+    }
+
+    // Wrap offset like infinite scroll demo
+    offsetY %= contentHeight
+    if offsetY < 0 {
+        offsetY += contentHeight
+    }
+
+    g.ToggleOffsetY = offsetY
+}
 
 func (g *Game) handleToggleTouch(x, y int) {
-    // Close button
     if x >= 300 && x <= 500 && y >= 520 && y <= 560 {
         g.ToggleUIOpen = false
         return
     }
 
-    startY := GridTop - int(g.ScrollOffset)
+    if !g.ToggleUIOpen {
+        return
+    }
 
-    for i, a := range g.AvailableAbilities {
-        row := i / Columns
-        col := i % Columns
+    if !image.Pt(x, y).In(g.contentArea) {
+        return
+    }
 
-        boxX := 40 + col*CellWidth + 10
-        boxY := startY + row*CellHeight + 10
+    count := len(g.AvailableAbilities)
+    if count == 0 {
+        return
+    }
+
+    for drawIndex := 0; drawIndex < count; drawIndex++ {
+        abilityIndex := (drawIndex + (g.ToggleOffsetY / cellHeight)) % count
+        a := g.AvailableAbilities[abilityIndex]
+
+        itemY := g.contentArea.Min.Y + drawIndex*cellHeight
+        itemX := g.contentArea.Min.X
+
+        itemRect := image.Rect(
+            itemX,
+            itemY,
+            itemX+cellWidth,
+            itemY+cellHeight,
+        )
+
+        if itemRect.Intersect(g.contentArea).Empty() {
+            continue
+        }
+
+        boxX := itemRect.Min.X + 10
+        boxY := itemRect.Min.Y + 10
 
         if x >= boxX && x <= boxX+40 && y >= boxY && y <= boxY+40 {
             a.Enabled = !a.Enabled
@@ -131,12 +186,8 @@ func (g *Game) handleToggleTouch(x, y int) {
     }
 }
 
-// ---------------------------------------------------------
-// DRAW: Desktop + Mobile Unified UI
-// ---------------------------------------------------------
-
 func (g *Game) drawToggleUI(screen *ebiten.Image) {
-    // Mobile button (always visible)
+    // Mobile button
     vector.FillRect(screen, 10, 540, 140, 50, color.RGBA{20, 20, 40, 200}, false)
     ebitenutil.DebugPrintAt(screen, "Abilities", 20, 555)
 
@@ -144,33 +195,64 @@ func (g *Game) drawToggleUI(screen *ebiten.Image) {
         return
     }
 
+    // Neon scanlines
+    for y := 80; y < 600; y += 4 {
+        vector.FillRect(screen, 0, float32(y), 800, 1, color.RGBA{0, 255, 255, 20}, false)
+    }
+
     // Background panel
-    vector.FillRect(screen, 0, 80, 800, 520, color.RGBA{10, 10, 30, 230}, false)
-    vector.StrokeRect(screen, 0, 80, 800, 520, 3, color.RGBA{200, 200, 255, 255}, false)
+    vector.FillRect(screen, 0, 80, 800, 520, color.RGBA{4, 4, 12, 240}, false)
+    vector.StrokeRect(screen, 0, 80, 800, 520, 3, color.RGBA{0, 255, 255, 255}, false)
 
-    // Header (fixed)
-    ebitenutil.DebugPrintAt(screen, "TRAINING ROOM — Ability Toggles", 20, 100)
+    // Header box
+    vector.FillRect(screen, 0, 80, 800, headerHeight, color.RGBA{6, 6, 20, 240}, false)
+    vector.StrokeRect(screen, 0, 80, 800, headerHeight, 3, color.RGBA{0, 255, 255, 255}, false)
+    ebitenutil.DebugPrintAt(screen, "TRAINING ROOM — Ability Toggles", 20, 110)
 
-    // Draw abilities in a 3-column grid
-    startY := GridTop - int(g.ScrollOffset)
+    // Content mask
+    screenContent := screen.SubImage(g.contentArea).(*ebiten.Image)
 
-    for i, a := range g.AvailableAbilities {
-        row := i / Columns
-        col := i % Columns
+    count := len(g.AvailableAbilities)
+    if count == 0 {
+        return
+    }
 
-        y := startY + row*CellHeight
-        x := 40 + col*CellWidth
+    for drawIndex := 0; drawIndex < count; drawIndex++ {
+        abilityIndex := (drawIndex + (g.ToggleOffsetY / cellHeight)) % count
+        a := g.AvailableAbilities[abilityIndex]
 
-        // Skip off-screen rows
-        if y < GridTop || y > 520 {
+        itemY := g.contentArea.Min.Y + drawIndex*cellHeight
+        itemX := g.contentArea.Min.X
+
+        itemRect := image.Rect(
+            itemX,
+            itemY,
+            itemX+cellWidth,
+            itemY+cellHeight,
+        )
+
+        if itemRect.Intersect(g.contentArea).Empty() {
             continue
         }
 
+        // Neon separator
+        vector.StrokeLine(screenContent,
+            float32(itemRect.Min.X), float32(itemRect.Min.Y),
+            float32(itemRect.Max.X), float32(itemRect.Min.Y),
+            1, color.RGBA{0, 200, 255, 255}, false)
+
         // Checkbox
+        vector.FillRect(screenContent, float32(itemRect.Min.X+10), float32(itemRect.Min.Y+10), 40, 40,
+            func() color.RGBA {
+                if a.Enabled {
+                    return color.RGBA{0, 255, 255, 255}
+                }
+                return color.RGBA{20, 40, 60, 255}
+            }(), false)
+
         if a.Enabled {
-            vector.FillRect(screen, float32(x+10), float32(y+10), 40, 40, color.RGBA{80, 200, 255, 255}, false)
-        } else {
-            vector.FillRect(screen, float32(x+10), float32(y+10), 40, 40, color.RGBA{40, 40, 80, 255}, false)
+            vector.StrokeRect(screenContent, float32(itemRect.Min.X+10), float32(itemRect.Min.Y+10), 40, 40,
+                2, color.RGBA{0, 255, 255, 255}, false)
         }
 
         // Icon
@@ -181,15 +263,68 @@ func (g *Game) drawToggleUI(screen *ebiten.Image) {
 
             op := &ebiten.DrawImageOptions{}
             op.GeoM.Scale(scale, scale)
-            op.GeoM.Translate(float64(x+60), float64(y+10))
-            screen.DrawImage(a.Icon, op)
+            op.GeoM.Translate(float64(itemRect.Min.X+70), float64(itemRect.Min.Y+10))
+            screenContent.DrawImage(a.Icon, op)
         }
 
         // Name
-        ebitenutil.DebugPrintAt(screen, a.Name, x+120, y+20)
+        ebitenutil.DebugPrintAt(screenContent, a.Name, itemRect.Min.X+130, itemRect.Min.Y+15)
+
+        // Description panel
+        descX := itemRect.Min.X + 130
+        descY := itemRect.Min.Y + 45
+        descW := cellWidth - 160
+        descH := cellHeight - 55
+
+        vector.FillRect(screenContent, float32(descX), float32(descY), float32(descW), float32(descH),
+            color.RGBA{6, 6, 20, 220}, false)
+
+        lines := wrapTextWords(a.Description, 60)
+        lineHeight := 16
+
+        maxDescScroll := float64(len(lines)*lineHeight - descH)
+        if maxDescScroll < 0 {
+            maxDescScroll = 0
+        }
+        if a.DescScroll < 0 {
+            a.DescScroll = 0
+        }
+        if a.DescScroll > maxDescScroll {
+            a.DescScroll = maxDescScroll
+        }
+
+        startLine := int(a.DescScroll / float64(lineHeight))
+        if startLine < 0 {
+            startLine = 0
+        }
+        if startLine >= len(lines) {
+            startLine = len(lines) - 1
+        }
+
+        for li := startLine; li < len(lines); li++ {
+            lineY := descY + (li-startLine)*lineHeight
+            if lineY > descY+descH {
+                break
+            }
+            ebitenutil.DebugPrintAt(screenContent, lines[li], descX+8, lineY)
+        }
+
+        // Scrollbar
+        if maxDescScroll > 0 {
+            scrollRatio := a.DescScroll / maxDescScroll
+            barHeight := float32(descH) * 0.3
+            barY := float32(descY) + (float32(descH)-barHeight)*float32(scrollRatio)
+            barX := float32(descX + descW - 6)
+
+            vector.FillRect(screenContent, barX, float32(descY), 6, float32(descH),
+                color.RGBA{0, 80, 120, 255}, false)
+            vector.FillRect(screenContent, barX, barY, 6, barHeight,
+                color.RGBA{0, 255, 255, 255}, false)
+        }
     }
 
     // Close button
-    vector.FillRect(screen, 300, 520, 200, 40, color.RGBA{80, 80, 255, 255}, false)
+    vector.FillRect(screen, 300, 520, 200, 40, color.RGBA{0, 80, 120, 255}, false)
+    vector.StrokeRect(screen, 300, 520, 200, 40, 2, color.RGBA{0, 255, 255, 255}, false)
     ebitenutil.DebugPrintAt(screen, "Close", 360, 530)
 }

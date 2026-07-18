@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"log"
 	"os"
+    "strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -80,4 +81,43 @@ func PlaceholderIcon(r, g, b uint8) *ebiten.Image {
 	img := ebiten.NewImage(32, 32)
 	img.Fill(color.RGBA{r, g, b, 255})
 	return img
+}
+
+func wrapText(s string, max int) []string {
+    var lines []string
+    for len(s) > max {
+        lines = append(lines, s[:max])
+        s = s[max:]
+    }
+    if len(s) > 0 {
+        lines = append(lines, s)
+    }
+    return lines
+}
+
+func wrapTextWords(s string, maxWidth int) []string {
+    words := strings.Fields(s)
+    if len(words) == 0 {
+        return []string{""}
+    }
+
+    var lines []string
+    var current string
+
+    for _, w := range words {
+        if current == "" {
+            current = w
+            continue
+        }
+        if len(current)+1+len(w) <= maxWidth {
+            current += " " + w
+        } else {
+            lines = append(lines, current)
+            current = w
+        }
+    }
+    if current != "" {
+        lines = append(lines, current)
+    }
+    return lines
 }

@@ -1,10 +1,26 @@
 package game
 
 import (
+	"image"
+	"time"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"golang.org/x/image/font"
-	"time"
 )
+
+type Ability struct {
+	Name            string
+	Description     string
+	Level           int
+	Icon            *ebiten.Image
+	Enabled         bool
+	Apply           func(g *Game) // runs every frame if Enabled
+	DescScroll      float64
+	DescExpanded    bool
+	DescHover       bool
+	DescTouchY      int
+	DescTouchActive bool
+}
 
 type DamageNumber struct {
 	X, Y  float64
@@ -97,11 +113,18 @@ type Game struct {
 
 	inTrainingRoom bool
 
-    abilityEnabled map[string]bool
+	abilityEnabled map[string]bool
 
-ToggleUIOpen bool
-ScrollOffset float64
-LastTouchY   int
-LastTouchActive bool
+	ToggleUIOpen    bool
+	ScrollOffset    float64
+	LastTouchY      int
+	LastTouchActive bool
 
+	contentArea        image.Rectangle
+	ToggleDragging     bool
+	TogglePrevY        int
+	ToggleStartY       int
+	ToggleOffsetY      int
+	ToggleOffsetStartY int
+	ToggleVelocityY    int
 }

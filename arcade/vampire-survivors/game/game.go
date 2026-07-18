@@ -2,119 +2,13 @@ package game
 
 import (
 	"fmt"
-	"image/color"
 	"math"
-	"math/rand"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
-	"github.com/hajimehoshi/ebiten/v2/vector"
-	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 )
-
-type DamageNumber struct {
-	X, Y  float64
-	Value int
-	Life  float64
-}
-
-type Crystal struct {
-	Pos    Vec
-	Alive  bool
-	Sprite *ebiten.Image
-}
-
-type Ability struct {
-	Name        string
-	Description string
-	Level       int
-	Icon        *ebiten.Image
-	Apply       func(g *Game)
-}
-
-type Projectile struct {
-	Pos    Vec
-	Vel    Vec
-	Damage float64
-	Alive  bool
-	Sprite *ebiten.Image
-
-	// Behavior flags
-	Lifetime int     // frames until despawn
-	Curve    float64 // boomerang arc
-	Return   bool    // flips direction mid-flight
-	Homing   bool    // seeks nearest enemy
-	Orbit    bool    // circles around player
-	Radius   float64 // orbit radius
-	Angle    float64 // orbit angle
-	Speed    float64 // movement speed
-
-	// Optional callbacks
-	OnHit    func(*Enemy)
-	OnUpdate func(*Projectile, *Game)
-}
-
-type FireTile struct {
-	Pos    Vec
-	Life   float64
-	Damage float64
-}
-
-type StunWave struct {
-	Pos    Vec
-	Radius float64
-	Life   float64
-}
-
-type Game struct {
-	player        *Player
-	lastTime      time.Time
-	Enemies       []*Enemy
-	DamageNumbers []*DamageNumber
-	Crystals      []*Crystal
-
-	waveTimer  float64
-	waveNumber int
-
-	bg            *ebiten.Image
-	crystalSprite *ebiten.Image
-
-	// Abilities
-	AvailableAbilities []*Ability
-	LevelUpMenuOpen    bool
-	LevelUpChoices     []*Ability
-
-	// Unified projectile system
-	Projectiles []*Projectile
-
-	// Fire tiles & waves remain separate
-	FireTiles []*FireTile
-	StunWaves []*StunWave
-
-	// Global spell stats
-	CrystalMagnetRadius float64
-	InfiniteLoopChance  float64
-
-	// Dagger (now projectile)
-	DaggerCooldown float64
-	DaggerRate     float64
-
-	GameState     GameState
-	TitleBG       *ebiten.Image
-	FadeAlpha     float64
-	BlinkTimer    float64
-	TitleFont     font.Face
-	TitleFontSize float64
-	TitleYOffset  float64
-}
-
-func PlaceholderIcon(r, g, b uint8) *ebiten.Image {
-	img := ebiten.NewImage(32, 32)
-	img.Fill(color.RGBA{r, g, b, 255})
-	return img
-}
 
 func NewGame() *Game {
 	InitMonsters()
@@ -124,7 +18,9 @@ func NewGame() *Game {
 		lastTime:            time.Now(),
 		waveTimer:           3.0,
 		waveNumber:          1,
-		bg:                  LoadImage("assets/grass_tile.png"),
+		bg:                  nil,
+		trainingRoomBg:      LoadImage("assets/training_room_tile.png"),
+		grassBg:             LoadImage("assets/grass_tile.png"),
 		crystalSprite:       LoadImage("assets/crystal.png"),
 		Crystals:            []*Crystal{},
 		CrystalMagnetRadius: 0,
@@ -167,271 +63,6 @@ func (g *Game) startGameplay() {
 	g.waveNumber = 1
 }
 
-func (g *Game) initAbilities() {
-	g.AvailableAbilities = []*Ability{
-
-		// ----------------------------
-		// Offensive / Attack Modifiers
-		// ----------------------------
-
-		{
-			Name:        "CPU Overclock",
-			Description: "Increase slash damage and attack speed.",
-			Icon:        LoadImage("assets/skills/cpu_overclock_skill.png"),
-			Apply: func(g *Game) {
-				g.player.SlashDamage += 1
-				g.player.SlashCooldownBase *= 0.9
-				g.player.SlashRadius += 5
-				g.player.AttackSpeedMultiplier += 0.05
-			},
-		},
-
-		{
-			Name:        "Garbage Collection",
-			Description: "Magnet for crystals and tiny DoT to weak enemies.",
-			Icon:        LoadImage("assets/skills/garbage_collection_skill.png"),
-			Apply: func(g *Game) {
-				g.CrystalMagnetRadius += 40
-			},
-		},
-
-		{
-			Name:        "Type Error",
-			Description: "Slow aura around the player. (placeholder)",
-			Icon:        LoadImage("assets/skills/type_error_skill.png"),
-			Apply: func(g *Game) {
-				// Implement slow aura later
-			},
-		},
-
-		{
-			Name:        "Callback Hell",
-			Description: "Throw a chaotic boomerang that goes out, comes back, and hits enemies twice.",
-			Icon:        LoadImage("assets/skills/callback_hell_skill.png"),
-			Apply: func(g *Game) {
-				dir := float64(g.player.lastDir)
-
-				b := &Projectile{
-					Pos:    Vec{X: g.player.Pos.X, Y: g.player.Pos.Y},
-					Vel:    Vec{X: dir * 350, Y: 0},
-					Damage: 8 + float64(g.player.Level)*2,
-					Alive:  true,
-					Sprite: PlaceholderIcon(255, 150, 0),
-
-					// boomerang behavior
-					Lifetime: 45,
-					Curve:    0.05,
-					Return:   true,
-				}
-
-				g.Projectiles = append(g.Projectiles, b)
-			},
-		},
-
-		{
-			Name:        "Index Out of Range",
-			Description: "Shoot a dagger in facing direction.",
-			Icon:        LoadImage("assets/skills/index_out_of_error_skill.png"),
-			Apply: func(g *Game) {
-				g.player.HasDagger = true
-				dir := float64(g.player.lastDir)
-
-				d := &Projectile{
-					Pos:    Vec{X: g.player.Pos.X, Y: g.player.Pos.Y},
-					Vel:    Vec{X: dir * 400, Y: 0},
-					Damage: 10 + float64(g.player.Level)*2,
-					Alive:  true,
-					Sprite: PlaceholderIcon(255, 255, 80),
-				}
-
-				g.DaggerRate *= 0.60
-				g.Projectiles = append(g.Projectiles, d)
-			},
-		},
-
-		{
-			Name:        "Memory Leak",
-			Description: "Leave fire tiles behind you.",
-			Icon:        LoadImage("assets/skills/memory_leak_skill.png"),
-			Apply: func(g *Game) {
-				ft := &FireTile{
-					Pos:    Vec{X: g.player.Pos.X, Y: g.player.Pos.Y},
-					Life:   3.0,
-					Damage: 5 + float64(g.player.Level),
-				}
-				g.FireTiles = append(g.FireTiles, ft)
-			},
-		},
-
-		{
-			Name:        "Race Condition",
-			Description: "Increase movement and attack speed.",
-			Icon:        LoadImage("assets/skills/race_condition_skill.png"),
-			Apply: func(g *Game) {
-				g.player.MoveSpeedMultiplier += 0.1
-				g.player.AttackSpeedMultiplier += 0.05
-			},
-		},
-
-		{
-			Name:        "Deadlock",
-			Description: "Freeze aura. (placeholder)",
-			Icon:        LoadImage("assets/skills/deadlock_skill.png"),
-			Apply: func(g *Game) {
-				// Implement freeze aura later
-			},
-		},
-
-		{
-			Name:        "Stack Overflow",
-			Description: "Increase HP and regen.",
-			Icon:        LoadImage("assets/skills/stack_overflow_skill.png"),
-			Apply: func(g *Game) {
-				g.player.MaxHP += 20
-				g.player.HP += 20
-				g.player.RegenPerSecond += 1
-			},
-		},
-
-		// ----------------------------
-		// Summons / Orbitals
-		// ----------------------------
-
-		{
-			Name:        "Heap Allocation",
-			Description: "Orbiting orbs around the player.",
-			Icon:        LoadImage("assets/skills/heap_allocation_skill.png"),
-			Apply: func(g *Game) {
-				orb := &Projectile{
-					Pos:    g.player.Pos,
-					Alive:  true,
-					Damage: 5,
-					Sprite: PlaceholderIcon(0, 255, 0),
-
-					Orbit:  true,
-					Angle:  rand.Float64() * math.Pi * 2,
-					Radius: 60,
-					Speed:  1.5,
-				}
-				g.Projectiles = append(g.Projectiles, orb)
-			},
-		},
-
-		{
-			Name:        "Compiler Optimization",
-			Description: "Global cooldown and speed buffs.",
-			Icon:        LoadImage("assets/skills/compiler_optimization_skill.png"),
-			Apply: func(g *Game) {
-				g.player.MoveSpeedMultiplier += 0.05
-				g.player.AttackSpeedMultiplier += 0.05
-			},
-		},
-
-		{
-			Name:        "AI Agents",
-			Description: "Summons autonomous mini‑gophers that seek and damage enemies.",
-			Icon:        LoadImage("assets/skills/ai_agents_skill.png"),
-			Apply: func(g *Game) {
-				for i := 0; i < 2; i++ {
-					agent := &Projectile{
-						Pos:    g.player.Pos,
-						Alive:  true,
-						Damage: 6 + float64(g.player.Level),
-						Sprite: PlaceholderIcon(120, 255, 255),
-
-						Homing: true,
-						Speed:  2.5,
-						Vel:    Vec{X: rand.Float64()*2 - 1, Y: rand.Float64()*2 - 1},
-					}
-					g.Projectiles = append(g.Projectiles, agent)
-				}
-			},
-		},
-
-		// ----------------------------
-		// Projectiles / Spells
-		// ----------------------------
-
-		{
-			Name:        "Dependency Injection",
-			Description: "Injects a burst of energy forward that damages enemies.",
-			Icon:        LoadImage("assets/skills/dependency_injection_skill.png"),
-			Apply: func(g *Game) {
-				dir := float64(g.player.lastDir)
-
-				injection := &Projectile{
-					Pos:    Vec{X: g.player.Pos.X, Y: g.player.Pos.Y},
-					Vel:    Vec{X: dir * 300, Y: 0},
-					Damage: 12 + float64(g.player.Level)*2.5,
-					Alive:  true,
-					Sprite: PlaceholderIcon(0, 200, 0),
-				}
-
-				g.Projectiles = append(g.Projectiles, injection)
-				g.DaggerRate *= 0.85
-			},
-		},
-
-		{
-			Name:        "Merge Conflict",
-			Description: "Perform a 360° cleave, damaging all nearby enemies.",
-			Icon:        LoadImage("assets/skills/merge_conflict_skill.png"),
-			Apply: func(g *Game) {
-				radius := 90.0
-				damage := 12 + float64(g.player.Level)*2.5
-
-				for _, e := range g.Enemies {
-					dx := e.Pos.X - g.player.Pos.X
-					dy := e.Pos.Y - g.player.Pos.Y
-					dist := math.Hypot(dx, dy)
-
-					if dist <= radius {
-						e.HP -= damage
-
-						g.DamageNumbers = append(g.DamageNumbers, &DamageNumber{
-							X:     e.Pos.X,
-							Y:     e.Pos.Y - 10,
-							Value: int(damage),
-							Life:  1.0,
-						})
-					}
-				}
-			},
-		},
-
-		{
-			Name:        "Return Statement",
-			Description: "Throws a code‑boomerang that damages enemies on the way out and on the way back.",
-			Icon:        LoadImage("assets/skills/return_statement_skill.png"),
-			Apply: func(g *Game) {
-				dir := float64(g.player.lastDir)
-
-				boomerang := &Projectile{
-					Pos:    Vec{X: g.player.Pos.X, Y: g.player.Pos.Y},
-					Vel:    Vec{X: dir * 6, Y: 0},
-					Damage: 8 + float64(g.player.Level),
-					Alive:  true,
-					Sprite: PlaceholderIcon(200, 255, 180),
-
-					Lifetime: 45,
-					Curve:    0.05,
-					Return:   true,
-				}
-
-				g.Projectiles = append(g.Projectiles, boomerang)
-			},
-		},
-		{
-			Name:        "API Rate Limit",
-			Description: "Reduce spell cooldowns.",
-			Icon:        LoadImage("assets/skills/api_rate_limit_skill.png"),
-			Apply: func(g *Game) {
-				g.player.AttackSpeedMultiplier += 0.05
-			},
-		},
-	}
-}
-
 func (g *Game) CameraOffset() (float64, float64) {
 	return g.player.Pos.X - 400, g.player.Pos.Y - 300
 }
@@ -453,12 +84,14 @@ func (g *Game) Update() error {
 	// TRAINING ROOM UPDATE
 	// ----------------------------
 	case StateTraining:
+		g.updateToggleUI()
 		return g.updateTraining(dt)
 
 	// ----------------------------
 	// GAMEPLAY UPDATE
 	// ----------------------------
 	case StateGameplay:
+		g.bg = g.grassBg
 		// If level-up menu is open, pause gameplay and handle input
 		if g.LevelUpMenuOpen {
 			if ebiten.IsKeyPressed(ebiten.Key1) {
@@ -761,30 +394,6 @@ func (g *Game) updateDamageNumbers(dt float64) {
 	}
 }
 
-func (g *Game) updateWaves(dt float64) {
-	g.waveTimer -= dt
-	if g.waveTimer <= 0 {
-		g.spawnWave()
-		g.waveNumber++
-		g.waveTimer = 5.0
-	}
-}
-
-func (g *Game) spawnWave() {
-	count := 5 + g.waveNumber*2
-
-	for i := 0; i < count; i++ {
-		angle := rand.Float64() * math.Pi * 2
-		dist := 400 + rand.Float64()*200
-
-		x := g.player.Pos.X + math.Cos(angle)*dist
-		y := g.player.Pos.Y + math.Sin(angle)*dist
-
-		mt := MonsterPool[rand.Intn(len(MonsterPool))]
-		g.Enemies = append(g.Enemies, NewEnemy(mt, x, y))
-	}
-}
-
 func (g *Game) checkLevelUp() {
 	xpNeeded := float64(g.player.Level * 10)
 
@@ -793,26 +402,6 @@ func (g *Game) checkLevelUp() {
 		g.player.Level++
 		g.openLevelUpMenu()
 	}
-}
-
-func (g *Game) openLevelUpMenu() {
-	g.LevelUpMenuOpen = true
-	g.LevelUpChoices = []*Ability{}
-
-	indices := rand.Perm(len(g.AvailableAbilities))
-	for i := 0; i < 3 && i < len(indices); i++ {
-		g.LevelUpChoices = append(g.LevelUpChoices, g.AvailableAbilities[indices[i]])
-	}
-}
-
-func (g *Game) pickAbility(idx int) {
-	if idx < 0 || idx >= len(g.LevelUpChoices) {
-		return
-	}
-	ability := g.LevelUpChoices[idx]
-	ability.Level++
-	ability.Apply(g)
-	g.player.Abilities = append(g.player.Abilities, ability)
 }
 
 func (g *Game) updateSpells(dt float64) {
@@ -1044,119 +633,4 @@ func (g *Game) resolvePlayerCollision(dt float64) {
 			g.player.Pos.Y += pushY
 		}
 	}
-}
-
-func (g *Game) drawHPBar(screen *ebiten.Image) {
-	camX, camY := g.CameraOffset()
-
-	barWidth := float32(40)
-	barHeight := float32(6)
-
-	x := float32(g.player.Pos.X - camX - float64(barWidth)/2)
-	y := float32(g.player.Pos.Y - camY + 45)
-
-	hpPercent := float32(g.player.HP / g.player.MaxHP)
-
-	vector.FillRect(screen, x, y, barWidth, barHeight, color.RGBA{80, 0, 0, 255}, false)
-	vector.FillRect(screen, x, y, barWidth*hpPercent, barHeight, color.RGBA{255, 40, 40, 255}, false)
-}
-
-func (g *Game) drawXPBar(screen *ebiten.Image) {
-	barWidth := float32(800)
-	barHeight := float32(10)
-	x := float32(0)
-	y := float32(0)
-
-	xpNeeded := float32(g.player.Level * 10)
-	xpPercent := float32(g.player.XP) / xpNeeded
-
-	vector.FillRect(screen, x, y, barWidth, barHeight, color.RGBA{30, 30, 60, 255}, false)
-	vector.FillRect(screen, x, y, barWidth*xpPercent, barHeight, color.RGBA{80, 80, 255, 255}, false)
-}
-
-func (g *Game) drawLevelUpMenu(screen *ebiten.Image) {
-	// Full-screen friendly centered box
-	boxX := 50
-	boxY := 80
-	boxW := 700 // wider box for long text
-	boxH := 420 // taller box for 3 large icons
-
-	// Background box
-	vector.FillRect(screen,
-		float32(boxX), float32(boxY),
-		float32(boxW), float32(boxH),
-		color.RGBA{10, 10, 30, 230},
-		false,
-	)
-
-	// Border
-	vector.StrokeRect(screen,
-		float32(boxX), float32(boxY),
-		float32(boxW), float32(boxH),
-		3,
-		color.RGBA{200, 200, 255, 255},
-		false,
-	)
-
-	ebitenutil.DebugPrintAt(screen,
-		"LEVEL UP! Choose an ability (1/2/3)",
-		boxX+30, boxY+30,
-	)
-
-	// Icon + spacing config
-	const iconSize = 80.0
-	const iconXOffset = 50
-	const textXOffset = iconXOffset + int(iconSize) + 40 // more horizontal padding
-	const rowSpacing = 110                               // more vertical padding
-
-	for i, a := range g.LevelUpChoices {
-		y := boxY + 80 + i*rowSpacing
-
-		// Draw scaled icon
-		if a.Icon != nil {
-			w, h := a.Icon.Size()
-
-			scaleX := iconSize / float64(w)
-			scaleY := iconSize / float64(h)
-
-			op := &ebiten.DrawImageOptions{}
-			op.Filter = ebiten.FilterNearest
-			op.GeoM.Scale(scaleX, scaleY)
-			op.GeoM.Translate(float64(boxX+iconXOffset), float64(y))
-
-			screen.DrawImage(a.Icon, op)
-		}
-
-		// Ability name + level
-		ebitenutil.DebugPrintAt(
-			screen,
-			fmt.Sprintf("%d: %s (Lv %d)", i+1, a.Name, a.Level+1),
-			boxX+textXOffset, y,
-		)
-
-		// Description
-		ebitenutil.DebugPrintAt(
-			screen,
-			a.Description,
-			boxX+textXOffset, y+30,
-		)
-	}
-}
-
-func (g *Game) fireDagger() {
-	dir := float64(g.player.lastDir)
-
-	p := &Projectile{
-		Pos:    Vec{X: g.player.Pos.X, Y: g.player.Pos.Y},
-		Vel:    Vec{X: dir * 400, Y: 0},
-		Damage: 10 + float64(g.player.Level)*2,
-		Alive:  true,
-		Sprite: PlaceholderIcon(255, 255, 80),
-
-		// projectile behavior
-		Speed:    400, // optional, used by homing logic
-		Lifetime: 60,  // optional, despawns after ~1 sec
-	}
-
-	g.Projectiles = append(g.Projectiles, p)
 }

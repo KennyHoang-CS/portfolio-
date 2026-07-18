@@ -75,3 +75,9 @@ func drawVSKeyPrompt(screen *ebiten.Image, msg string, y float64, face font.Face
         drawCenteredText(screen, msg, y, face, 0, 0, color.White)
     }
 }
+
+func PlaceholderIcon(r, g, b uint8) *ebiten.Image {
+	img := ebiten.NewImage(32, 32)
+	img.Fill(color.RGBA{r, g, b, 255})
+	return img
+}

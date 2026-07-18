@@ -1,6 +1,9 @@
 package game
 
-import "math"
+import (
+	"math"
+	"math/rand"
+)
 
 type Enemy struct {
     Type     *MonsterType
@@ -52,3 +55,26 @@ func (e *Enemy) Update(dt float64, playerPos Vec) {
     }
 }
 
+func (g *Game) updateWaves(dt float64) {
+	g.waveTimer -= dt
+	if g.waveTimer <= 0 {
+		g.spawnWave()
+		g.waveNumber++
+		g.waveTimer = 5.0
+	}
+}
+
+func (g *Game) spawnWave() {
+	count := 5 + g.waveNumber*2
+
+	for i := 0; i < count; i++ {
+		angle := rand.Float64() * math.Pi * 2
+		dist := 400 + rand.Float64()*200
+
+		x := g.player.Pos.X + math.Cos(angle)*dist
+		y := g.player.Pos.Y + math.Sin(angle)*dist
+
+		mt := MonsterPool[rand.Intn(len(MonsterPool))]
+		g.Enemies = append(g.Enemies, NewEnemy(mt, x, y))
+	}
+}

@@ -71,7 +71,7 @@ func (g *Game) initAbilities() {
             Description: "Increase crystal magnet radius.",
             Icon:        LoadImage("assets/skills/garbage_collection_skill.png"),
             Apply: func(g *Game) {
-                g.CrystalMagnetRadius += 40
+                g.CrystalMagnetRadius += 400
             },
         },
 

@@ -293,50 +293,79 @@ func (g *Game) Layout(w, h int) (int, int) {
 }
 
 func (g *Game) handleCombat(dt float64) {
-	if !g.player.attacking {
-		return
-	}
+    if !g.player.attacking {
+        return
+    }
 
-	slashDir := float64(g.player.lastDir)
-	slashX := g.player.Pos.X + slashDir*150
-	slashY := g.player.Pos.Y - 5
-	slashRadius := g.player.SlashRadius
+    slashDir := float64(g.player.lastDir)
+    slashX := g.player.Pos.X + slashDir*150
+    slashY := g.player.Pos.Y - 5
+    slashRadius := g.player.SlashRadius
 
-	for _, e := range g.Enemies {
-		if !e.Alive {
-			continue
-		}
+    for _, e := range g.Enemies {
+        if !e.Alive {
+            continue
+        }
 
-		dx := e.Pos.X - slashX
-		dy := e.Pos.Y - slashY
-		dist := math.Hypot(dx, dy)
+        dx := e.Pos.X - slashX
+        dy := e.Pos.Y - slashY
+        dist := math.Hypot(dx, dy)
 
-		if dist < slashRadius+e.Radius {
-			e.HP -= g.player.SlashDamage
-			e.HitFlash = 0.1
+        if dist < slashRadius+e.Radius {
 
-			kb := 120.0
-			e.Pos.X += slashDir * kb * dt
+            // ----------------------------------------
+            // TRAINING ROOM: only ONE hit per slash
+            // ----------------------------------------
+            if g.GameState == StateTraining {
+                if g.player.didSlashHit {
+                    continue // skip additional hits this attack
+                }
+                g.player.didSlashHit = true
+            }
 
-			g.DamageNumbers = append(g.DamageNumbers, &DamageNumber{
-				X:     e.Pos.X,
-				Y:     e.Pos.Y - 20,
-				Value: int(g.player.SlashDamage),
-				Life:  1.0,
-			})
+            // Apply damage
+            e.HP -= g.player.SlashDamage
+            e.HitFlash = 0.1
 
-			if e.HP <= 0 {
-				e.Alive = false
+            // Knockback
+            kb := 120.0
+            e.Pos.X += slashDir * kb * dt
 
-				g.Crystals = append(g.Crystals, &Crystal{
-					Pos:    Vec{X: e.Pos.X, Y: e.Pos.Y},
-					Alive:  true,
-					Sprite: g.crystalSprite,
-				})
-			}
-		}
-	}
+            // Damage number
+            g.DamageNumbers = append(g.DamageNumbers, &DamageNumber{
+                X:     e.Pos.X,
+                Y:     e.Pos.Y - 20,
+                Value: int(g.player.SlashDamage),
+                Life:  1.0,
+            })
+
+            // ----------------------------------------
+            // TRAINING ROOM: dummy drops crystals EVERY hit
+            // ----------------------------------------
+            if g.GameState == StateTraining {
+                g.Crystals = append(g.Crystals, &Crystal{
+                    Pos:    Vec{X: e.Pos.X, Y: e.Pos.Y},
+                    Alive:  true,
+                    Sprite: g.crystalSprite,
+                })
+                continue
+            }
+
+            // ----------------------------------------
+            // NORMAL GAMEPLAY: enemy death
+            // ----------------------------------------
+            if e.HP <= 0 {
+                e.Alive = false
+                g.Crystals = append(g.Crystals, &Crystal{
+                    Pos:    Vec{X: e.Pos.X, Y: e.Pos.Y},
+                    Alive:  true,
+                    Sprite: g.crystalSprite,
+                })
+            }
+        }
+    }
 }
+
 
 func (g *Game) handleEnemyContact(dt float64) {
 	for _, e := range g.Enemies {

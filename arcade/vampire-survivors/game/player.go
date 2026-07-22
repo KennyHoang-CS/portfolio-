@@ -32,6 +32,7 @@ type Player struct {
 	SlashDamage       float64
 	SlashRadius       float64
 	SlashCooldownBase float64
+	didSlashHit bool
 
 	// Global buffs (modified by abilities)
 	MoveSpeedMultiplier   float64
@@ -88,146 +89,163 @@ func NewPlayer() *Player {
 }
 
 func (p *Player) Update(dt float64) {
-	vx, vy := 0.0, 0.0
+    vx, vy := 0.0, 0.0
 
-	// Movement input
-	if ebiten.IsKeyPressed(ebiten.KeyW) {
-		vy -= 1
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyS) {
-		vy += 1
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyA) {
-		vx -= 1
-	}
-	if ebiten.IsKeyPressed(ebiten.KeyD) {
-		vx += 1
-	}
+    // Movement input
+    if ebiten.IsKeyPressed(ebiten.KeyW) {
+        vy -= 1
+    }
+    if ebiten.IsKeyPressed(ebiten.KeyS) {
+        vy += 1
+    }
+    if ebiten.IsKeyPressed(ebiten.KeyA) {
+        vx -= 1
+    }
+    if ebiten.IsKeyPressed(ebiten.KeyD) {
+        vx += 1
+    }
 
-	// Normalize diagonal movement
-	if vx != 0 || vy != 0 {
-		l := math.Hypot(vx, vy)
-		vx /= l
-		vy /= l
-	}
+    // Normalize diagonal movement
+    if vx != 0 || vy != 0 {
+        l := math.Hypot(vx, vy)
+        vx /= l
+        vy /= l
+    }
 
-	// Direction flipping
-	if vx < 0 {
-		p.lastDir = -1
-	} else if vx > 0 {
-		p.lastDir = 1
-	}
+    // Direction flipping
+    if vx < 0 {
+        p.lastDir = -1
+    } else if vx > 0 {
+        p.lastDir = 1
+    }
 
-	// Movement speed buffs
-	speed := p.Speed * p.MoveSpeedMultiplier
-	p.Pos.X += vx * speed * dt
-	p.Pos.Y += vy * speed * dt
+    // Movement speed buffs
+    speed := p.Speed * p.MoveSpeedMultiplier
+    p.Pos.X += vx * speed * dt
+    p.Pos.Y += vy * speed * dt
 
-	// Regen
-	if p.RegenPerSecond > 0 {
-		p.HP += p.RegenPerSecond * dt
-		if p.HP > p.MaxHP {
-			p.HP = p.MaxHP
-		}
-	}
+    // Regen
+    if p.RegenPerSecond > 0 {
+        p.HP += p.RegenPerSecond * dt
+        if p.HP > p.MaxHP {
+            p.HP = p.MaxHP
+        }
+    }
 
-	// --- AUTO ATTACK ---
-	p.attackCooldown -= dt * p.AttackSpeedMultiplier
-	if p.attackCooldown <= 0 && !p.attacking {
-		p.attacking = true
-		p.anticipation = 0.05
-		p.recovery = 0
-		p.attackTimer = 0
-		p.attackFrame = 0
+    // --- AUTO ATTACK ---
+    p.attackCooldown -= dt * p.AttackSpeedMultiplier
+    if p.attackCooldown <= 0 && !p.attacking {
+        p.attacking = true
+        p.anticipation = 0.05
+        p.recovery = 0
+        p.attackTimer = 0
+        p.attackFrame = 0
 
-		p.attackCooldown = p.SlashCooldownBase
-	}
+        p.didSlashHit = false   // ⭐ RESET FOR NEXT SLASH
 
-	// Anticipation phase
-	if p.anticipation > 0 {
-		p.anticipation -= dt
-		return
-	}
+        p.attackCooldown = p.SlashCooldownBase
+    }
 
-	// Slash animation
-	if p.attacking {
-		p.attackTimer += dt * p.AttackSpeedMultiplier
+    // Anticipation phase
+    if p.anticipation > 0 {
+        p.anticipation -= dt
+        return
+    }
 
-		if p.attackTimer > 0.08 {
-			p.attackTimer = 0
-			p.attackFrame++
+    // Slash animation
+    if p.attacking {
+        p.attackTimer += dt * p.AttackSpeedMultiplier
 
-			if p.attackFrame >= len(slashFrames) {
-				p.attacking = false
-				p.attackFrame = 0
-				p.recovery = 0.05
-			}
-		}
-	}
+        if p.attackTimer > 0.08 {
+            p.attackTimer = 0
+            p.attackFrame++
 
-	// Recovery phase
-	if p.recovery > 0 {
-		p.recovery -= dt
-	}
+            if p.attackFrame >= len(slashFrames) {
+                p.attacking = false
+                p.attackFrame = 0
+                p.recovery = 0.05
+            }
+        }
+    }
+
+    // Recovery phase
+    if p.recovery > 0 {
+        p.recovery -= dt
+    }
 }
 
 func (p *Player) DrawWithCamera(screen *ebiten.Image, camX, camY float64) {
 
-	// --- Draw gopher (flip left/right) ---
-	{
-		op := &ebiten.DrawImageOptions{}
-		src := p.Idle
+    // --- Draw gopher (flip left/right) ---
+    {
+        op := &ebiten.DrawImageOptions{}
+        src := p.Idle
 
-		srcW, srcH := src.Size()
-		targetH := 80.0
-		scale := targetH / float64(srcH)
+        srcW, srcH := src.Size()
+        targetH := 80.0
+        scale := targetH / float64(srcH)
 
-		if p.lastDir == -1 {
-			op.GeoM.Scale(-scale, scale)
-			op.GeoM.Translate(float64(srcW)*scale/2, -float64(srcH)*scale/2)
-		} else {
-			op.GeoM.Scale(scale, scale)
-			op.GeoM.Translate(-float64(srcW)*scale/2, -float64(srcH)*scale/2)
-		}
+        // Simple Vampire Survivors–style bob
+        t := float64(ebiten.Tick())
+        speed := p.Speed * p.MoveSpeedMultiplier
+        if speed < 0.1 {
+            speed = 0.1 // idle breathing
+        }
+        intensity := speed * 0.1
+		heightSineDist := 0.15
+		bobFreq := 0.1 
+        bob := math.Sin(t*bobFreq) * (heightSineDist * intensity)
 
-		op.GeoM.Translate(p.Pos.X-camX, p.Pos.Y-camY)
-		screen.DrawImage(src, op)
-	}
+        if p.lastDir == -1 {
+            op.GeoM.Scale(-scale, scale)
+            op.GeoM.Translate(float64(srcW)*scale/2, -float64(srcH)*scale/2)
+        } else {
+            op.GeoM.Scale(scale, scale)
+            op.GeoM.Translate(-float64(srcW)*scale/2, -float64(srcH)*scale/2)
+        }
 
-	// --- Draw slash ---
-	if p.attacking {
-		sop := &ebiten.DrawImageOptions{}
-		sop.Filter = ebiten.FilterNearest
+        // Just add bob to Y, keep everything else the same
+        op.GeoM.Translate(p.Pos.X-camX, p.Pos.Y-camY+bob)
+        screen.DrawImage(src, op)
+    }
 
-		src := slashFrames[p.attackFrame]
-		srcW, srcH := src.Size()
+    // --- Draw slash ---
+    if p.attacking {
+        sop := &ebiten.DrawImageOptions{}
+        sop.Filter = ebiten.FilterNearest
 
-		targetW := 150.0
-		targetH := 80.0
+        src := slashFrames[p.attackFrame]
+        srcW, srcH := src.Size()
 
-		scaleX := targetW / float64(srcW)
-		scaleY := targetH / float64(srcH)
+        targetW := 150.0
+        targetH := 80.0
 
-		if p.lastDir == -1 {
-			sop.GeoM.Scale(-scaleX, scaleY)
-			sop.GeoM.Translate(float64(srcW)*scaleX/2, -float64(srcH)*scaleY/2)
-		} else {
-			sop.GeoM.Scale(scaleX, scaleY)
-			sop.GeoM.Translate(-float64(srcW)*scaleX/2, -float64(srcH)*scaleY/2)
-		}
+        scaleX := targetW / float64(srcW)
+        scaleY := targetH / float64(srcH)
 
-		if p.anticipation > 0 {
-			sop.GeoM.Translate(0, -10)
-		}
+        if p.lastDir == -1 {
+            sop.GeoM.Scale(-scaleX, scaleY)
+            sop.GeoM.Translate(float64(srcW)*scaleX/2, -float64(srcH)*scaleY/2)
+        } else {
+            sop.GeoM.Scale(scaleX, scaleY)
+            sop.GeoM.Translate(-float64(srcW)*scaleX/2, -float64(srcH)*scaleY/2)
+        }
 
-		if p.recovery > 0 {
-			sop.GeoM.Translate(0, 6)
-		}
+        if p.anticipation > 0 {
+            sop.GeoM.Translate(0, -10)
+        }
 
-		slashOffsetX := float64(p.lastDir) * 150.0
-		slashOffsetY := -5.0
+        if p.recovery > 0 {
+            sop.GeoM.Translate(0, 6)
+        }
 
-		sop.GeoM.Translate(p.Pos.X+slashOffsetX-camX, p.Pos.Y+slashOffsetY-camY)
-		screen.DrawImage(src, sop)
-	}
+        slashOffsetX := float64(p.lastDir) * 150.0
+        slashOffsetY := -5.0
+
+        sop.GeoM.Translate(p.Pos.X+slashOffsetX-camX, p.Pos.Y+slashOffsetY-camY)
+        screen.DrawImage(src, sop)
+    }
 }
+
+
+
